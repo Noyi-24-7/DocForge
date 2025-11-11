@@ -178,7 +178,7 @@ export function EditorContent({ project, documents }: EditorContentProps) {
                 })}
                 {documents.length === 0 && (
                   <p className="paragraph-xs px-4 text-muted-foreground">
-                    No sections yet. Click "Add Section".
+                    No sections yet. Click &quot;Add Section&quot;.
                   </p>
                 )}
               </nav>
