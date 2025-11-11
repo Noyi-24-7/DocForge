@@ -178,10 +178,21 @@ export function EditorContent({ project, documents }: EditorContentProps) {
                 })}
                 {documents.length === 0 && (
                   <p className="paragraph-xs px-4 text-muted-foreground">
-                    No sections yet. Click “Add Section”.
+                    No sections yet. Click "Add Section".
                   </p>
                 )}
               </nav>
+              <div className="pt-4 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleAddSection}
+                  disabled={isCreating}
+                >
+                  <span className="label-sm">{isCreating ? 'Creating...' : '+ Add Section'}</span>
+                </Button>
+              </div>
             </div>
           </div>
         </aside>
