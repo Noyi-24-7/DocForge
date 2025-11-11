@@ -1,0 +1,1904 @@
+---
+alwaysApply: true
+---
+
+# Storage: Supabase Storage / S3 - Comprehensive Rules
+
+You are an expert in cloud storage solutions, specifically Supabase Storage and AWS S3, with deep knowledge of file management, security, performance optimization, and CDN integration.
+
+## Project Context
+
+Building DocForge: A documentation generation platform that needs to store and serve various file types including generated PDFs, uploaded project files, repository assets, images, and temporary processing files.
+
+## Core Principles
+
+- Implement proper access control and security for all stored files
+- Optimize for performance with CDN integration and caching
+- Design scalable storage architecture that handles growth
+- Implement efficient file naming and organization strategies
+- Use appropriate storage tiers for different file types
+- Monitor storage costs and optimize usage
+- Implement proper backup and disaster recovery
+- Handle large files with multipart uploads and streaming
+- Use presigned URLs for secure temporary access
+- Validate file types and sizes before storage
+
+## Storage Selection Strategy
+
+### Supabase Storage (Primary for DocForge)
+
+**Use when:**
+- Building on Supabase ecosystem
+- Need tight integration with Supabase Auth and RLS
+- Want simplified setup and management
+- Files under 50MB are typical
+- Need built-in image transformations
+- Want automatic CDN distribution
+
+**Best for:**
+- User-uploaded files (PDFs, documents)
+- Generated documentation exports
+- Project assets and images
+- User avatars and profile media
+- Temporary files during processing
+
+**Limitations:**
+- File size limit: 50MB per file (can be increased)
+- Not ideal for massive scale (petabytes)
+- Fewer advanced features than S3
+
+### AWS S3 (Secondary/Hybrid)
+
+**Use when:**
+- Need enterprise-scale storage
+- Require advanced lifecycle policies
+- Need complex versioning strategies
+- Want advanced analytics and logging
+- Require cross-region replication
+- Need integration with AWS ecosystem
+
+**Best for:**
+- Large file storage (>50MB)
+- Long-term archival
+- Big data processing
+- Backup storage
+- Multi-region requirements
+- Advanced compliance needs
+
+### Hybrid Approach (Recommended for DocForge)
+
+```typescript
+// Storage strategy based on file type and size
+function selectStorage(file: FileInfo): 'supabase' | 's3' {
+  // Large files or archives -> S3
+  if (file.size > 50 * 1024 * 1024) return 's3'
+  
+  // Long-term backups -> S3
+  if (file.type === 'backup') return 's3'
+  
+  // User-facing files -> Supabase (better integration)
+  if (['pdf', 'document', 'image'].includes(file.category)) return 'supabase'
+  
+  // Default to Supabase for simplicity
+  return 'supabase'
+}
+```
+
+## Supabase Storage Implementation
+
+### Bucket Setup and Configuration
+
+```typescript
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+// Bucket configuration
+const BUCKETS = {
+  documents: {
+    name: 'documents',
+    public: false,
+    fileSizeLimit: 50 * 1024 * 1024, // 50MB
+    allowedMimeTypes: ['application/pdf', 'text/markdown', 'text/plain'],
+  },
+  assets: {
+    name: 'assets',
+    public: true,
+    fileSizeLimit: 10 * 1024 * 1024, // 10MB
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
+  },
+  repositories: {
+    name: 'repositories',
+    public: false,
+    fileSizeLimit: 100 * 1024 * 1024, // 100MB
+    allowedMimeTypes: ['application/zip', 'application/x-tar'],
+  },
+  temp: {
+    name: 'temp',
+    public: false,
+    fileSizeLimit: 25 * 1024 * 1024, // 25MB
+    allowedMimeTypes: ['*/*'],
+  },
+}
+
+// Create buckets programmatically
+async function initializeBuckets() {
+  for (const [key, config] of Object.entries(BUCKETS)) {
+    const { data: existing } = await supabase.storage.getBucket(config.name)
+    
+    if (!existing) {
+      await supabase.storage.createBucket(config.name, {
+        public: config.public,
+        fileSizeLimit: config.fileSizeLimit,
+        allowedMimeTypes: config.allowedMimeTypes,
+      })
+      console.log(`Created bucket: ${config.name}`)
+    }
+  }
+}
+```
+
+### File Upload Patterns
+
+```typescript
+interface UploadOptions {
+  bucket: string
+  path: string
+  file: File | Buffer
+  metadata?: Record<string, string>
+  upsert?: boolean
+  cacheControl?: string
+}
+
+interface UploadResult {
+  path: string
+  url: string
+  size: number
+  type: string
+}
+
+class SupabaseStorageService {
+  private supabase: SupabaseClient
+
+  constructor(supabase: SupabaseClient) {
+    this.supabase = supabase
+  }
+
+  async upload(options: UploadOptions): Promise<UploadResult> {
+    const { bucket, path, file, metadata, upsert = false, cacheControl } = options
+
+    // Validate file
+    this.validateFile(file, bucket)
+
+    // Upload file
+    const { data, error } = await this.supabase.storage
+      .from(bucket)
+      .upload(path, file, {
+        upsert,
+        cacheControl: cacheControl || '3600',
+        contentType: this.getContentType(file),
+        metadata,
+      })
+
+    if (error) {
+      throw new StorageError(`Upload failed: ${error.message}`, 'UPLOAD_FAILED')
+    }
+
+    // Get public URL or signed URL
+    const url = this.getFileUrl(bucket, data.path)
+
+    return {
+      path: data.path,
+      url,
+      size: this.getFileSize(file),
+      type: this.getContentType(file),
+    }
+  }
+
+  async uploadMultiple(
+    bucket: string,
+    files: Array<{ path: string; file: File | Buffer }>
+  ): Promise<UploadResult[]> {
+    const uploads = files.map(({ path, file }) =>
+      this.upload({ bucket, path, file })
+    )
+
+    return Promise.all(uploads)
+  }
+
+  private validateFile(file: File | Buffer, bucket: string): void {
+    const config = BUCKETS[bucket]
+    if (!config) {
+      throw new StorageError('Invalid bucket', 'INVALID_BUCKET')
+    }
+
+    const size = this.getFileSize(file)
+    if (size > config.fileSizeLimit) {
+      throw new StorageError(
+        `File too large. Max size: ${config.fileSizeLimit} bytes`,
+        'FILE_TOO_LARGE'
+      )
+    }
+
+    const mimeType = this.getContentType(file)
+    if (
+      config.allowedMimeTypes[0] !== '*/*' &&
+      !config.allowedMimeTypes.includes(mimeType)
+    ) {
+      throw new StorageError(
+        `Invalid file type: ${mimeType}`,
+        'INVALID_FILE_TYPE'
+      )
+    }
+  }
+
+  private getFileSize(file: File | Buffer): number {
+    return file instanceof Buffer ? file.length : file.size
+  }
+
+  private getContentType(file: File | Buffer): string {
+    if (file instanceof Buffer) {
+      return 'application/octet-stream'
+    }
+    return file.type || 'application/octet-stream'
+  }
+
+  private getFileUrl(bucket: string, path: string): string {
+    const config = BUCKETS[bucket]
+    
+    if (config.public) {
+      const { data } = this.supabase.storage.from(bucket).getPublicUrl(path)
+      return data.publicUrl
+    }
+
+    // For private files, return path (generate signed URL when needed)
+    return path
+  }
+}
+
+class StorageError extends Error {
+  constructor(message: string, public code: string) {
+    super(message)
+    this.name = 'StorageError'
+  }
+}
+```
+
+### File Download and Retrieval
+
+```typescript
+class SupabaseStorageService {
+  // ... previous methods
+
+  async download(bucket: string, path: string): Promise<Blob> {
+    const { data, error } = await this.supabase.storage
+      .from(bucket)
+      .download(path)
+
+    if (error) {
+      throw new StorageError(`Download failed: ${error.message}`, 'DOWNLOAD_FAILED')
+    }
+
+    return data
+  }
+
+  async getSignedUrl(
+    bucket: string,
+    path: string,
+    expiresIn: number = 3600
+  ): Promise<string> {
+    const { data, error } = await this.supabase.storage
+      .from(bucket)
+      .createSignedUrl(path, expiresIn)
+
+    if (error) {
+      throw new StorageError(
+        `Failed to create signed URL: ${error.message}`,
+        'SIGNED_URL_FAILED'
+      )
+    }
+
+    return data.signedUrl
+  }
+
+  async getSignedUrls(
+    bucket: string,
+    paths: string[],
+    expiresIn: number = 3600
+  ): Promise<Map<string, string>> {
+    const { data, error } = await this.supabase.storage
+      .from(bucket)
+      .createSignedUrls(paths, expiresIn)
+
+    if (error) {
+      throw new StorageError(
+        `Failed to create signed URLs: ${error.message}`,
+        'SIGNED_URLS_FAILED'
+      )
+    }
+
+    const urlMap = new Map<string, string>()
+    data.forEach((item, index) => {
+      if (item.signedUrl) {
+        urlMap.set(paths[index], item.signedUrl)
+      }
+    })
+
+    return urlMap
+  }
+
+  async list(bucket: string, prefix?: string): Promise<FileObject[]> {
+    const { data, error } = await this.supabase.storage
+      .from(bucket)
+      .list(prefix, {
+        limit: 100,
+        offset: 0,
+        sortBy: { column: 'created_at', order: 'desc' },
+      })
+
+    if (error) {
+      throw new StorageError(`List failed: ${error.message}`, 'LIST_FAILED')
+    }
+
+    return data
+  }
+
+  async delete(bucket: string, paths: string[]): Promise<void> {
+    const { error } = await this.supabase.storage.from(bucket).remove(paths)
+
+    if (error) {
+      throw new StorageError(`Delete failed: ${error.message}`, 'DELETE_FAILED')
+    }
+  }
+
+  async move(
+    bucket: string,
+    fromPath: string,
+    toPath: string
+  ): Promise<void> {
+    const { error } = await this.supabase.storage
+      .from(bucket)
+      .move(fromPath, toPath)
+
+    if (error) {
+      throw new StorageError(`Move failed: ${error.message}`, 'MOVE_FAILED')
+    }
+  }
+
+  async copy(
+    bucket: string,
+    fromPath: string,
+    toPath: string
+  ): Promise<void> {
+    const { error } = await this.supabase.storage
+      .from(bucket)
+      .copy(fromPath, toPath)
+
+    if (error) {
+      throw new StorageError(`Copy failed: ${error.message}`, 'COPY_FAILED')
+    }
+  }
+}
+```
+
+### Image Transformation
+
+```typescript
+class ImageService extends SupabaseStorageService {
+  getTransformedImageUrl(
+    bucket: string,
+    path: string,
+    options: {
+      width?: number
+      height?: number
+      quality?: number
+      format?: 'webp' | 'jpg' | 'png'
+      resize?: 'cover' | 'contain' | 'fill'
+    }
+  ): string {
+    const config = BUCKETS[bucket]
+    if (!config.public) {
+      throw new StorageError(
+        'Image transformations only work with public buckets',
+        'INVALID_BUCKET'
+      )
+    }
+
+    const { data } = this.supabase.storage.from(bucket).getPublicUrl(path, {
+      transform: {
+        width: options.width,
+        height: options.height,
+        quality: options.quality,
+        format: options.format,
+        resize: options.resize,
+      },
+    })
+
+    return data.publicUrl
+  }
+
+  async generateThumbnail(
+    bucket: string,
+    path: string,
+    size: number = 200
+  ): Promise<string> {
+    return this.getTransformedImageUrl(bucket, path, {
+      width: size,
+      height: size,
+      quality: 80,
+      format: 'webp',
+      resize: 'cover',
+    })
+  }
+
+  async generateResponsiveImages(
+    bucket: string,
+    path: string
+  ): Promise<Record<string, string>> {
+    const sizes = [320, 640, 1024, 1920]
+    
+    const urls: Record<string, string> = {}
+    
+    for (const size of sizes) {
+      urls[`${size}w`] = this.getTransformedImageUrl(bucket, path, {
+        width: size,
+        quality: 85,
+        format: 'webp',
+      })
+    }
+
+    return urls
+  }
+}
+```
+
+## AWS S3 Implementation
+
+### S3 Client Setup
+
+```typescript
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import {
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+  CopyObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { Upload } from '@aws-sdk/lib-storage'
+
+const s3Config: S3ClientConfig = {
+  region: process.env.AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+}
+
+const s3Client = new S3Client(s3Config)
+
+// Bucket configuration
+const S3_BUCKETS = {
+  documents: 'docforge-documents',
+  archives: 'docforge-archives',
+  backups: 'docforge-backups',
+  processing: 'docforge-processing',
+}
+```
+
+### S3 Upload Patterns
+
+```typescript
+interface S3UploadOptions {
+  bucket: string
+  key: string
+  body: Buffer | Readable | string
+  contentType?: string
+  metadata?: Record<string, string>
+  cacheControl?: string
+  acl?: 'private' | 'public-read'
+  storageClass?: 'STANDARD' | 'INTELLIGENT_TIERING' | 'GLACIER'
+}
+
+class S3StorageService {
+  private client: S3Client
+
+  constructor(client: S3Client) {
+    this.client = client
+  }
+
+  async upload(options: S3UploadOptions): Promise<{ key: string; url: string }> {
+    const {
+      bucket,
+      key,
+      body,
+      contentType,
+      metadata,
+      cacheControl,
+      acl = 'private',
+      storageClass = 'STANDARD',
+    } = options
+
+    const command = new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      Metadata: metadata,
+      CacheControl: cacheControl,
+      ACL: acl,
+      StorageClass: storageClass,
+    })
+
+    await this.client.send(command)
+
+    const url = acl === 'public-read'
+      ? `https://${bucket}.s3.amazonaws.com/${key}`
+      : await this.getSignedUrl(bucket, key)
+
+    return { key, url }
+  }
+
+  async multipartUpload(
+    bucket: string,
+    key: string,
+    body: Buffer | Readable,
+    onProgress?: (progress: number) => void
+  ): Promise<{ key: string; url: string }> {
+    const upload = new Upload({
+      client: this.client,
+      params: {
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+      },
+      queueSize: 4, // Concurrent parts
+      partSize: 5 * 1024 * 1024, // 5MB parts
+    })
+
+    if (onProgress) {
+      upload.on('httpUploadProgress', (progress) => {
+        const percentage = progress.loaded && progress.total
+          ? (progress.loaded / progress.total) * 100
+          : 0
+        onProgress(percentage)
+      })
+    }
+
+    await upload.done()
+
+    return {
+      key,
+      url: await this.getSignedUrl(bucket, key),
+    }
+  }
+
+  async download(bucket: string, key: string): Promise<Buffer> {
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+
+    const response = await this.client.send(command)
+    const stream = response.Body as Readable
+
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+      stream.on('data', (chunk) => chunks.push(chunk))
+      stream.on('error', reject)
+      stream.on('end', () => resolve(Buffer.concat(chunks)))
+    })
+  }
+
+  async getSignedUrl(
+    bucket: string,
+    key: string,
+    expiresIn: number = 3600
+  ): Promise<string> {
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+
+    return await getSignedUrl(this.client, command, { expiresIn })
+  }
+
+  async getSignedUploadUrl(
+    bucket: string,
+    key: string,
+    contentType: string,
+    expiresIn: number = 3600
+  ): Promise<string> {
+    const command = new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType,
+    })
+
+    return await getSignedUrl(this.client, command, { expiresIn })
+  }
+
+  async exists(bucket: string, key: string): Promise<boolean> {
+    try {
+      const command = new HeadObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+      await this.client.send(command)
+      return true
+    } catch (error) {
+      if (error.name === 'NotFound') {
+        return false
+      }
+      throw error
+    }
+  }
+
+  async delete(bucket: string, keys: string[]): Promise<void> {
+    if (keys.length === 1) {
+      const command = new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: keys[0],
+      })
+      await this.client.send(command)
+    } else {
+      const command = new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: {
+          Objects: keys.map((key) => ({ Key: key })),
+        },
+      })
+      await this.client.send(command)
+    }
+  }
+
+  async list(
+    bucket: string,
+    prefix?: string,
+    maxKeys: number = 1000
+  ): Promise<Array<{ key: string; size: number; lastModified: Date }>> {
+    const command = new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: prefix,
+      MaxKeys: maxKeys,
+    })
+
+    const response = await this.client.send(command)
+
+    return (response.Contents || []).map((item) => ({
+      key: item.Key!,
+      size: item.Size!,
+      lastModified: item.LastModified!,
+    }))
+  }
+
+  async copy(
+    sourceBucket: string,
+    sourceKey: string,
+    destBucket: string,
+    destKey: string
+  ): Promise<void> {
+    const command = new CopyObjectCommand({
+      CopySource: `${sourceBucket}/${sourceKey}`,
+      Bucket: destBucket,
+      Key: destKey,
+    })
+
+    await this.client.send(command)
+  }
+}
+```
+
+### S3 Lifecycle Policies
+
+```typescript
+import {
+  PutBucketLifecycleConfigurationCommand,
+  LifecycleRule,
+} from '@aws-sdk/client-s3'
+
+async function configureBucketLifecycle(bucket: string) {
+  const rules: LifecycleRule[] = [
+    {
+      Id: 'DeleteTempFiles',
+      Status: 'Enabled',
+      Filter: {
+        Prefix: 'temp/',
+      },
+      Expiration: {
+        Days: 1, // Delete after 1 day
+      },
+    },
+    {
+      Id: 'ArchiveOldDocuments',
+      Status: 'Enabled',
+      Filter: {
+        Prefix: 'documents/',
+      },
+      Transitions: [
+        {
+          Days: 30,
+          StorageClass: 'STANDARD_IA', // Infrequent Access after 30 days
+        },
+        {
+          Days: 90,
+          StorageClass: 'GLACIER', // Glacier after 90 days
+        },
+      ],
+    },
+    {
+      Id: 'DeleteIncompleteMultipartUploads',
+      Status: 'Enabled',
+      Filter: {},
+      AbortIncompleteMultipartUpload: {
+        DaysAfterInitiation: 7,
+      },
+    },
+  ]
+
+  const command = new PutBucketLifecycleConfigurationCommand({
+    Bucket: bucket,
+    LifecycleConfiguration: {
+      Rules: rules,
+    },
+  })
+
+  await s3Client.send(command)
+}
+```
+
+## File Organization Strategy
+
+### Path Structure
+
+```typescript
+interface PathConfig {
+  bucket: string
+  prefix: string
+  pattern: string
+}
+
+class FilePathManager {
+  // Generate organized file paths
+  generatePath(config: {
+    userId: string
+    projectId: string
+    fileType: 'pdf' | 'markdown' | 'archive' | 'asset'
+    fileName: string
+  }): string {
+    const { userId, projectId, fileType, fileName } = config
+    const timestamp = Date.now()
+    const sanitized = this.sanitizeFileName(fileName)
+    
+    // Example: users/user123/projects/proj456/documents/1234567890_filename.pdf
+    return `users/${userId}/projects/${projectId}/${fileType}s/${timestamp}_${sanitized}`
+  }
+
+  generateTempPath(sessionId: string, fileName: string): string {
+    const sanitized = this.sanitizeFileName(fileName)
+    return `temp/${sessionId}/${Date.now()}_${sanitized}`
+  }
+
+  generateBackupPath(originalPath: string): string {
+    const timestamp = new Date().toISOString().split('T')[0]
+    return `backups/${timestamp}/${originalPath}`
+  }
+
+  private sanitizeFileName(fileName: string): string {
+    return fileName
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .replace(/_{2,}/g, '_')
+      .toLowerCase()
+  }
+
+  parsePathMetadata(path: string): {
+    userId?: string
+    projectId?: string
+    fileType?: string
+    timestamp?: number
+  } {
+    const parts = path.split('/')
+    
+    if (parts[0] === 'users' && parts[2] === 'projects') {
+      return {
+        userId: parts[1],
+        projectId: parts[3],
+        fileType: parts[4],
+        timestamp: parseInt(parts[5]?.split('_')[0] || '0'),
+      }
+    }
+
+    return {}
+  }
+}
+```
+
+## Security and Access Control
+
+### Supabase RLS Policies
+
+```sql
+-- Enable RLS on storage
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can upload their own files
+CREATE POLICY "Users can upload own files"
+ON storage.objects
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'documents' AND
+  (storage.foldername(name))[1] = 'users' AND
+  (storage.foldername(name))[2] = auth.uid()::text
+);
+
+-- Policy: Users can read own files
+CREATE POLICY "Users can read own files"
+ON storage.objects
+FOR SELECT
+TO authenticated
+USING (
+  bucket_id = 'documents' AND
+  (storage.foldername(name))[1] = 'users' AND
+  (storage.foldername(name))[2] = auth.uid()::text
+);
+
+-- Policy: Users can delete own files
+CREATE POLICY "Users can delete own files"
+ON storage.objects
+FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'documents' AND
+  (storage.foldername(name))[1] = 'users' AND
+  (storage.foldername(name))[2] = auth.uid()::text
+);
+
+-- Policy: Public read for assets bucket
+CREATE POLICY "Public assets are readable"
+ON storage.objects
+FOR SELECT
+TO public
+USING (bucket_id = 'assets');
+```
+
+### S3 Bucket Policies
+
+```typescript
+import { PutBucketPolicyCommand } from '@aws-sdk/client-s3'
+
+async function configureBucketPolicy(bucket: string) {
+  const policy = {
+    Version: '2012-10-17',
+    Statement: [
+      {
+        Sid: 'PublicReadGetObject',
+        Effect: 'Allow',
+        Principal: '*',
+        Action: 's3:GetObject',
+        Resource: `arn:aws:s3:::${bucket}/public/*`,
+      },
+      {
+        Sid: 'DenyUnencryptedObjectUploads',
+        Effect: 'Deny',
+        Principal: '*',
+        Action: 's3:PutObject',
+        Resource: `arn:aws:s3:::${bucket}/*`,
+        Condition: {
+          StringNotEquals: {
+            's3:x-amz-server-side-encryption': 'AES256',
+          },
+        },
+      },
+    ],
+  }
+
+  const command = new PutBucketPolicyCommand({
+    Bucket: bucket,
+    Policy: JSON.stringify(policy),
+  })
+
+  await s3Client.send(command)
+}
+```
+
+### File Access Validation
+
+```typescript
+class FileAccessControl {
+  async canUserAccessFile(
+    userId: string,
+    filePath: string
+  ): Promise<boolean> {
+    // Check if file belongs to user
+    const metadata = new FilePathManager().parsePathMetadata(filePath)
+    
+    if (metadata.userId && metadata.userId !== userId) {
+      return false
+    }
+
+    // Check project access
+    if (metadata.projectId) {
+      const { data } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('id', metadata.projectId)
+        .eq('user_id', userId)
+        .single()
+
+      return !!data
+    }
+
+    return true
+  }
+
+  async validateFileAccess(
+    userId: string,
+    bucket: string,
+    path: string
+  ): Promise<void> {
+    const hasAccess = await this.canUserAccessFile(userId, path)
+    
+    if (!hasAccess) {
+      throw new StorageError('Access denied', 'ACCESS_DENIED')
+    }
+  }
+}
+```
+
+## Performance Optimization
+
+### Caching Strategy
+
+```typescript
+import { createClient } from 'redis'
+
+class StorageCacheService {
+  private redis: ReturnType<typeof createClient>
+
+  constructor(redisUrl: string) {
+    this.redis = createClient({ url: redisUrl })
+    this.redis.connect()
+  }
+
+  async cacheFileMetadata(
+    path: string,
+    metadata: Record<string, any>,
+    ttl: number = 3600
+  ): Promise<void> {
+    await this.redis.setEx(
+      `file:metadata:${path}`,
+      ttl,
+      JSON.stringify(metadata)
+    )
+  }
+
+  async getFileMetadata(path: string): Promise<Record<string, any> | null> {
+    const cached = await this.redis.get(`file:metadata:${path}`)
+    return cached ? JSON.parse(cached) : null
+  }
+
+  async cacheSignedUrl(
+    path: string,
+    url: string,
+    ttl: number
+  ): Promise<void> {
+    await this.redis.setEx(`file:url:${path}`, ttl - 60, url) // Cache for slightly less than expiry
+  }
+
+  async getSignedUrl(path: string): Promise<string | null> {
+    return await this.redis.get(`file:url:${path}`)
+  }
+
+  async invalidate(path: string): Promise<void> {
+    await this.redis.del(`file:metadata:${path}`, `file:url:${path}`)
+  }
+}
+```
+
+### CDN Integration
+
+```typescript
+import { CloudFrontClient, CreateInvalidationCommand } from '@aws-sdk/client-cloudfront'
+
+class CDNService {
+  private cloudfront: CloudFrontClient
+  private distributionId: string
+
+  constructor(distributionId: string) {
+    this.cloudfront = new CloudFrontClient({
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    })
+    this.distributionId = distributionId
+  }
+
+  async invalidateCache(paths: string[]): Promise<void> {
+    const command = new CreateInvalidationCommand({
+      DistributionId: this.distributionId,
+      InvalidationBatch: {
+        CallerReference: Date.now().toString(),
+        Paths: {
+          Quantity: paths.length,
+          Items: paths.map(p => `/${p}`),
+        },
+      },
+    })
+
+    await this.cloudfront.send(command)
+  }
+
+  getCDNUrl(key: string): string {
+    return `https://${process.env.CDN_DOMAIN}/${key}`
+  }
+}
+```
+
+### Lazy Loading and Streaming
+
+```typescript
+import { Readable } from 'stream'
+
+class StreamingFileService {
+  async streamFile(
+    bucket: string,
+    key: string,
+    res: Response
+  ): Promise<void> {
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+
+    const response = await s3Client.send(command)
+    const stream = response.Body as Readable
+
+    // Set appropriate headers
+    res.setHeader('Content-Type', response.ContentType || 'application/octet-stream')
+    res.setHeader('Content-Length', response.ContentLength?.toString() || '0')
+    res.setHeader('Cache-Control', 'public, max-age=31536000')
+
+    // Pipe stream to response
+    stream.pipe(res)
+  }
+
+  async streamRange(
+    bucket: string,
+    key: string,
+    start: number,
+    end: number,
+    res: Response
+  ): Promise<void> {
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Range: `bytes=${start}-${end}`,
+    })
+
+    const response = await s3Client.send(command)
+    const stream = response.Body as Readable
+
+    res.setHeader('Content-Type', response.ContentType || 'application/octet-stream')
+    res.setHeader('Content-Length', response.ContentLength?.toString() || '0')
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${response.ContentLength}`)
+    res.setHeader('Accept-Ranges', 'bytes')
+    res.status(206) // Partial Content
+
+    stream.pipe(res)
+  }
+}
+```
+
+## File Processing Patterns
+
+### PDF Generation and Storage
+
+```typescript
+import PDFDocument from 'pdfkit'
+import { Readable } from 'stream'
+
+class DocumentService {
+  private storage: SupabaseStorageService
+  private pathManager: FilePathManager
+
+  constructor() {
+    this.storage = new SupabaseStorageService(supabase)
+    this.pathManager = new FilePathManager()
+  }
+
+  async generateAndStorePDF(
+    userId: string,
+    projectId: string,
+    content: DocumentationContent
+  ): Promise<{ path: string; url: string }> {
+    // Generate PDF
+    const pdfBuffer = await this.generatePDF(content)
+
+    // Generate path
+    const fileName = `${content.title.toLowerCase().replace(/\s+/g, '-')}.pdf`
+    const path = this.pathManager.generatePath({
+      userId,
+      projectId,
+      fileType: 'pdf',
+      fileName,
+    })
+
+    // Upload to storage
+    const result = await this.storage.upload({
+      bucket: 'documents',
+      path,
+      file: pdfBuffer,
+      metadata: {
+        title: content.title,
+        projectId,
+        generatedAt: new Date().toISOString(),
+      },
+      cacheControl: '3600',
+    })
+
+    return result
+  }
+
+  private async generatePDF(content: DocumentationContent): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+      const doc = new PDFDocument()
+
+      doc.on('data', (chunk) => chunks.push(chunk))
+      doc.on('end', () => resolve(Buffer.concat(chunks)))
+      doc.on('error', reject)
+
+      // Add content to PDF
+      doc.fontSize(24).text(content.title, { align: 'center' })
+      doc.moveDown()
+      
+      content.sections.forEach((section) => {
+        doc.fontSize(18).text(section.heading)
+        doc.fontSize(12).text(section.content)
+        doc.moveDown()
+      })
+
+      doc.end()
+    })
+  }
+
+  async streamPDFDownload(
+    userId: string,
+    path: string,
+    res: Response
+  ): Promise<void> {
+    // Validate access
+    await new FileAccessControl().validateFileAccess(userId, 'documents', path)
+
+    // Get file
+    const blob = await this.storage.download('documents', path)
+    
+    // Stream to response
+    const buffer = Buffer.from(await blob.arrayBuffer())
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="${path.split('/').pop()}"`)
+    res.send(buffer)
+  }
+}
+```
+
+### Batch File Operations
+
+```typescript
+class BatchFileService {
+  async uploadBatch(
+    files: Array<{ path: string; content: Buffer; metadata?: Record<string, string> }>,
+    bucket: string
+  ): Promise<Array<{ path: string; success: boolean; error?: string }>> {
+    const results = await Promise.allSettled(
+      files.map(async (file) => {
+        const storage = new SupabaseStorageService(supabase)
+        return await storage.upload({
+          bucket,
+          path: file.path,
+          file: file.content,
+          metadata: file.metadata,
+        })
+      })
+    )
+
+    return results.map((result, index) => {
+      if (result.status === 'fulfilled') {
+        return {
+          path: files[index].path,
+          success: true,
+        }
+      } else {
+        return {
+          path: files[index].path,
+          success: false,
+          error: result.reason.message,
+        }
+      }
+    })
+  }
+
+  async deleteBatch(bucket: string, paths: string[]): Promise<void> {
+    // Chunk into batches of 100 (storage API limit)
+    const chunks = this.chunkArray(paths, 100)
+
+    for (const chunk of chunks) {
+      await new SupabaseStorageService(supabase).delete(bucket, chunk)
+    }
+  }
+
+  async moveFiles(
+    bucket: string,
+    moves: Array<{ from: string; to: string }>
+  ): Promise<void> {
+    const storage = new SupabaseStorageService(supabase)
+
+    for (const { from, to } of moves) {
+      await storage.move(bucket, from, to)
+    }
+  }
+
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = []
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size))
+    }
+    return chunks
+  }
+}
+```
+
+### File Compression and Archiving
+
+```typescript
+import archiver from 'archiver'
+import { createWriteStream, createReadStream } from 'fs'
+import { pipeline } from 'stream/promises'
+import unzipper from 'unzipper'
+
+class ArchiveService {
+  async createArchive(
+    files: Array<{ path: string; content: Buffer }>,
+    archiveName: string
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+      const archive = archiver('zip', { zlib: { level: 9 } })
+
+      archive.on('data', (chunk) => chunks.push(chunk))
+      archive.on('end', () => resolve(Buffer.concat(chunks)))
+      archive.on('error', reject)
+
+      files.forEach((file) => {
+        archive.append(file.content, { name: file.path })
+      })
+
+      archive.finalize()
+    })
+  }
+
+  async extractArchive(
+    archiveBuffer: Buffer
+  ): Promise<Array<{ path: string; content: Buffer }>> {
+    const files: Array<{ path: string; content: Buffer }> = []
+
+    const directory = await unzipper.Open.buffer(archiveBuffer)
+
+    for (const file of directory.files) {
+      if (!file.type || file.type === 'File') {
+        const content = await file.buffer()
+        files.push({ path: file.path, content })
+      }
+    }
+
+    return files
+  }
+
+  async compressAndUpload(
+    bucket: string,
+    sourcePaths: string[],
+    archivePath: string
+  ): Promise<{ path: string; size: number }> {
+    const storage = new SupabaseStorageService(supabase)
+
+    // Download files
+    const files = await Promise.all(
+      sourcePaths.map(async (path) => {
+        const blob = await storage.download(bucket, path)
+        const content = Buffer.from(await blob.arrayBuffer())
+        return { path, content }
+      })
+    )
+
+    // Create archive
+    const archiveBuffer = await this.createArchive(files, archivePath)
+
+    // Upload archive
+    await storage.upload({
+      bucket,
+      path: archivePath,
+      file: archiveBuffer,
+      metadata: {
+        originalFiles: sourcePaths.join(','),
+        fileCount: sourcePaths.length.toString(),
+      },
+    })
+
+    return { path: archivePath, size: archiveBuffer.length }
+  }
+}
+```
+
+## Monitoring and Analytics
+
+### Storage Metrics Tracking
+
+```typescript
+interface StorageMetrics {
+  totalFiles: number
+  totalSize: number
+  filesByType: Record<string, number>
+  sizeByType: Record<string, number>
+  uploadsToday: number
+  downloadsToday: number
+}
+
+class StorageAnalytics {
+  async getMetrics(userId: string): Promise<StorageMetrics> {
+    // Get file statistics from database
+    const { data: files } = await supabase
+      .from('file_metadata')
+      .select('*')
+      .eq('user_id', userId)
+
+    const metrics: StorageMetrics = {
+      totalFiles: files?.length || 0,
+      totalSize: 0,
+      filesByType: {},
+      sizeByType: {},
+      uploadsToday: 0,
+      downloadsToday: 0,
+    }
+
+    files?.forEach((file) => {
+      metrics.totalSize += file.size
+
+      const type = file.type || 'unknown'
+      metrics.filesByType[type] = (metrics.filesByType[type] || 0) + 1
+      metrics.sizeByType[type] = (metrics.sizeByType[type] || 0) + file.size
+
+      const today = new Date().toDateString()
+      if (new Date(file.created_at).toDateString() === today) {
+        metrics.uploadsToday++
+      }
+    })
+
+    // Get download stats
+    const { data: downloads } = await supabase
+      .from('download_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('created_at', new Date().toISOString().split('T')[0])
+
+    metrics.downloadsToday = downloads?.length || 0
+
+    return metrics
+  }
+
+  async trackUpload(
+    userId: string,
+    projectId: string,
+    filePath: string,
+    size: number,
+    type: string
+  ): Promise<void> {
+    await supabase.from('file_metadata').insert({
+      user_id: userId,
+      project_id: projectId,
+      path: filePath,
+      size,
+      type,
+      created_at: new Date().toISOString(),
+    })
+  }
+
+  async trackDownload(
+    userId: string,
+    filePath: string
+  ): Promise<void> {
+    await supabase.from('download_logs').insert({
+      user_id: userId,
+      path: filePath,
+      downloaded_at: new Date().toISOString(),
+    })
+  }
+
+  async getStorageUsage(userId: string): Promise<{
+    used: number
+    limit: number
+    percentage: number
+  }> {
+    const metrics = await this.getMetrics(userId)
+    const limit = 10 * 1024 * 1024 * 1024 // 10GB default limit
+
+    return {
+      used: metrics.totalSize,
+      limit,
+      percentage: (metrics.totalSize / limit) * 100,
+    }
+  }
+}
+```
+
+### Cost Tracking
+
+```typescript
+interface StorageCost {
+  storage: number
+  bandwidth: number
+  requests: number
+  total: number
+}
+
+class CostCalculator {
+  // Pricing per GB per month
+  private readonly STORAGE_COST = 0.021 // $0.021/GB for S3 Standard
+  private readonly BANDWIDTH_COST = 0.09 // $0.09/GB for data transfer
+  private readonly REQUEST_COST_GET = 0.0004 / 1000 // per 1000 requests
+  private readonly REQUEST_COST_PUT = 0.005 / 1000 // per 1000 requests
+
+  calculateMonthlyCost(
+    storageGB: number,
+    bandwidthGB: number,
+    getRequests: number,
+    putRequests: number
+  ): StorageCost {
+    const storage = storageGB * this.STORAGE_COST
+    const bandwidth = bandwidthGB * this.BANDWIDTH_COST
+    const requests =
+      getRequests * this.REQUEST_COST_GET +
+      putRequests * this.REQUEST_COST_PUT
+
+    return {
+      storage,
+      bandwidth,
+      requests,
+      total: storage + bandwidth + requests,
+    }
+  }
+
+  async estimateProjectCost(projectId: string): Promise<StorageCost> {
+    // Get project storage usage
+    const { data: files } = await supabase
+      .from('file_metadata')
+      .select('size')
+      .eq('project_id', projectId)
+
+    const totalSize = files?.reduce((sum, f) => sum + f.size, 0) || 0
+    const storageGB = totalSize / (1024 * 1024 * 1024)
+
+    // Estimate bandwidth (assume 2x downloads)
+    const bandwidthGB = storageGB * 2
+
+    // Estimate requests
+    const getRequests = files?.length * 10 || 0 // 10 downloads per file per month
+    const putRequests = files?.length || 0
+
+    return this.calculateMonthlyCost(storageGB, bandwidthGB, getRequests, putRequests)
+  }
+}
+```
+
+## Backup and Disaster Recovery
+
+### Automated Backup Strategy
+
+```typescript
+class BackupService {
+  private s3: S3StorageService
+
+  constructor() {
+    this.s3 = new S3StorageService(s3Client)
+  }
+
+  async backupToS3(
+    sourceSupabaseBucket: string,
+    prefix: string
+  ): Promise<{ filesBackedUp: number; totalSize: number }> {
+    const storage = new SupabaseStorageService(supabase)
+    const pathManager = new FilePathManager()
+
+    // List all files in Supabase
+    const files = await storage.list(sourceSupabaseBucket, prefix)
+
+    let filesBackedUp = 0
+    let totalSize = 0
+
+    for (const file of files) {
+      try {
+        // Download from Supabase
+        const blob = await storage.download(sourceSupabaseBucket, file.name)
+        const buffer = Buffer.from(await blob.arrayBuffer())
+
+        // Upload to S3
+        const backupPath = pathManager.generateBackupPath(file.name)
+        await this.s3.upload({
+          bucket: S3_BUCKETS.backups,
+          key: backupPath,
+          body: buffer,
+          storageClass: 'GLACIER', // Use Glacier for cost-effective long-term storage
+        })
+
+        filesBackedUp++
+        totalSize += buffer.length
+      } catch (error) {
+        console.error(`Failed to backup ${file.name}:`, error)
+      }
+    }
+
+    return { filesBackedUp, totalSize }
+  }
+
+  async scheduleBackup(
+    bucket: string,
+    schedule: 'daily' | 'weekly' | 'monthly'
+  ): Promise<void> {
+    // Store backup schedule in database
+    await supabase.from('backup_schedules').insert({
+      bucket,
+      schedule,
+      last_run: null,
+      next_run: this.calculateNextRun(schedule),
+      enabled: true,
+    })
+  }
+
+  private calculateNextRun(schedule: 'daily' | 'weekly' | 'monthly'): Date {
+    const now = new Date()
+    
+    switch (schedule) {
+      case 'daily':
+        return new Date(now.getTime() + 24 * 60 * 60 * 1000)
+      case 'weekly':
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+      case 'monthly':
+        return new Date(now.getFullYear(), now.getMonth() + 1, now.getDate())
+    }
+  }
+
+  async restoreFromBackup(
+    backupPath: string,
+    targetBucket: string,
+    targetPath: string
+  ): Promise<void> {
+    // Download from S3 backup
+    const buffer = await this.s3.download(S3_BUCKETS.backups, backupPath)
+
+    // Upload to Supabase
+    const storage = new SupabaseStorageService(supabase)
+    await storage.upload({
+      bucket: targetBucket,
+      path: targetPath,
+      file: buffer,
+    })
+  }
+}
+```
+
+### Versioning Implementation
+
+```typescript
+class FileVersioningService {
+  async saveVersion(
+    bucket: string,
+    path: string,
+    content: Buffer
+  ): Promise<{ versionId: string; path: string }> {
+    const versionId = crypto.randomUUID()
+    const versionPath = `${path}.versions/${versionId}`
+
+    const storage = new SupabaseStorageService(supabase)
+    await storage.upload({
+      bucket,
+      path: versionPath,
+      file: content,
+      metadata: {
+        originalPath: path,
+        versionId,
+        createdAt: new Date().toISOString(),
+      },
+    })
+
+    // Track version in database
+    await supabase.from('file_versions').insert({
+      path,
+      version_id: versionId,
+      version_path: versionPath,
+      size: content.length,
+      created_at: new Date().toISOString(),
+    })
+
+    return { versionId, path: versionPath }
+  }
+
+  async listVersions(path: string): Promise<Array<{
+    versionId: string
+    createdAt: Date
+    size: number
+  }>> {
+    const { data } = await supabase
+      .from('file_versions')
+      .select('*')
+      .eq('path', path)
+      .order('created_at', { ascending: false })
+
+    return data?.map((v) => ({
+      versionId: v.version_id,
+      createdAt: new Date(v.created_at),
+      size: v.size,
+    })) || []
+  }
+
+  async restoreVersion(
+    bucket: string,
+    path: string,
+    versionId: string
+  ): Promise<void> {
+    const { data } = await supabase
+      .from('file_versions')
+      .select('version_path')
+      .eq('path', path)
+      .eq('version_id', versionId)
+      .single()
+
+    if (!data) {
+      throw new StorageError('Version not found', 'VERSION_NOT_FOUND')
+    }
+
+    const storage = new SupabaseStorageService(supabase)
+    
+    // Download version
+    const blob = await storage.download(bucket, data.version_path)
+    const buffer = Buffer.from(await blob.arrayBuffer())
+
+    // Replace current file
+    await storage.upload({
+      bucket,
+      path,
+      file: buffer,
+      upsert: true,
+    })
+  }
+
+  async deleteOldVersions(
+    path: string,
+    keepCount: number = 5
+  ): Promise<number> {
+    const versions = await this.listVersions(path)
+    
+    if (versions.length <= keepCount) {
+      return 0
+    }
+
+    const toDelete = versions.slice(keepCount)
+    const storage = new SupabaseStorageService(supabase)
+
+    for (const version of toDelete) {
+      const { data } = await supabase
+        .from('file_versions')
+        .select('version_path')
+        .eq('version_id', version.versionId)
+        .single()
+
+      if (data) {
+        await storage.delete('documents', [data.version_path])
+      }
+    }
+
+    // Delete from database
+    await supabase
+      .from('file_versions')
+      .delete()
+      .eq('path', path)
+      .in('version_id', toDelete.map(v => v.versionId))
+
+    return toDelete.length
+  }
+}
+```
+
+## Testing Storage Implementation
+
+### Mock Storage for Testing
+
+```typescript
+import { vi } from 'vitest'
+
+class MockStorageService {
+  private files: Map<string, Buffer> = new Map()
+
+  async upload(options: UploadOptions): Promise<UploadResult> {
+    const key = `${options.bucket}/${options.path}`
+    const buffer = options.file instanceof Buffer 
+      ? options.file 
+      : Buffer.from(await options.file.arrayBuffer())
+    
+    this.files.set(key, buffer)
+
+    return {
+      path: options.path,
+      url: `https://mock.storage/${key}`,
+      size: buffer.length,
+      type: 'application/octet-stream',
+    }
+  }
+
+  async download(bucket: string, path: string): Promise<Blob> {
+    const key = `${bucket}/${path}`
+    const buffer = this.files.get(key)
+
+    if (!buffer) {
+      throw new StorageError('File not found', 'NOT_FOUND')
+    }
+
+    return new Blob([buffer])
+  }
+
+  async delete(bucket: string, paths: string[]): Promise<void> {
+    paths.forEach(path => {
+      const key = `${bucket}/${path}`
+      this.files.delete(key)
+    })
+  }
+
+  async exists(bucket: string, path: string): Promise<boolean> {
+    const key = `${bucket}/${path}`
+    return this.files.has(key)
+  }
+
+  clear(): void {
+    this.files.clear()
+  }
+}
+
+// Usage in tests
+describe('Storage Service', () => {
+  let storage: MockStorageService
+
+  beforeEach(() => {
+    storage = new MockStorageService()
+  })
+
+  afterEach(() => {
+    storage.clear()
+  })
+
+  it('should upload file', async () => {
+    const result = await storage.upload({
+      bucket: 'documents',
+      path: 'test.pdf',
+      file: Buffer.from('test content'),
+    })
+
+    expect(result.path).toBe('test.pdf')
+    expect(await storage.exists('documents', 'test.pdf')).toBe(true)
+  })
+
+  it('should download file', async () => {
+    await storage.upload({
+      bucket: 'documents',
+      path: 'test.pdf',
+      file: Buffer.from('test content'),
+    })
+
+    const blob = await storage.download('documents', 'test.pdf')
+    const text = await blob.text()
+    
+    expect(text).toBe('test content')
+  })
+})
+```
+
+## Best Practices Summary
+
+### Do's ✅
+- Use appropriate storage service based on file size and use case
+- Implement proper access control with RLS policies or bucket policies
+- Validate file types and sizes before upload
+- Use organized path structures for easy management
+- Cache signed URLs to reduce API calls
+- Implement versioning for critical documents
+- Use CDN for frequently accessed public files
+- Monitor storage usage and costs
+- Implement automated backups
+- Use streaming for large files
+- Compress files when appropriate
+- Use lifecycle policies to manage old data
+- Implement retry logic for failed uploads
+- Log all storage operations for auditing
+- Use presigned URLs for temporary access
+
+### Don'ts ❌
+- Don't store sensitive data without encryption
+- Don't use public buckets for private files
+- Don't skip file validation
+- Don't ignore storage limits
+- Don't forget to clean up temporary files
+- Don't hard-code file paths
+- Don't skip error handling
+- Don't expose storage keys to clients
+- Don't ignore CORS configuration
+- Don't forget to set proper cache headers
+- Don't upload files synchronously without progress tracking
+- Don't store uncompressed files when compression is beneficial
+- Don't forget to implement rate limiting for uploads
+- Don't skip backup strategies
+- Don't ignore cost optimization opportunities
+
+## Critical Reminders
+
+- **Security first**: Always implement proper access control and validation
+- **Cost awareness**: Monitor and optimize storage usage continuously
+- **Performance matters**: Use CDN, caching, and streaming for better UX
+- **Plan for scale**: Design file organization and naming for future growth
+- **Backup everything**: Implement automated backup and disaster recovery
+- **Test thoroughly**: Mock storage in tests to avoid real API calls
+- **Monitor usage**: Track metrics, costs, and errors
+- **Optimize delivery**: Use appropriate compression and image transformations
+- **Clean up regularly**: Implement lifecycle policies to remove old files
+- **Document decisions**: Keep clear records of bucket policies and access rules
+
+## DocForge-Specific Patterns
+
+### Complete File Lifecycle
+```typescript
+class DocForgeStorageManager {
+  async handleDocumentGeneration(
+    userId: string,
+    projectId: string,
+    content: DocumentationContent
+  ): Promise<{ pdfUrl: string; markdownUrl: string }> {
+    const docService = new DocumentService()
+    const pathManager = new FilePathManager()
+
+    // Generate and store PDF
+    const pdfResult = await docService.generateAndStorePDF(userId, projectId, content)
+
+    // Store markdown source
+    const mdPath = pathManager.generatePath({
+      userId,
+      projectId,
+      fileType: 'markdown',
+      fileName: `${content.title}.md`,
+    })
+
+    const storage = new SupabaseStorageService(supabase)
+    const mdResult = await storage.upload({
+      bucket: 'documents',
+      path: mdPath,
+      file: Buffer.from(content.toMarkdown()),
+    })
+
+    // Track analytics
+    const analytics = new StorageAnalytics()
+    await analytics.trackUpload(userId, projectId, pdfResult.path, 0, 'pdf')
+    await analytics.trackUpload(userId, projectId, mdResult.path, 0, 'markdown')
+
+    return {
+      pdfUrl: await storage.getSignedUrl('documents', pdfResult.path, 86400),
+      markdownUrl: await storage.getSignedUrl('documents', mdResult.path, 86400),
+    }
+  }
+}
+```
+
+Refer to Supabase Storage and AWS S3 official documentation for detailed API references and best practices.

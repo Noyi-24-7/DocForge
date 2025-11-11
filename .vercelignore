@@ -1,0 +1,38 @@
+# Documentation
+*.md
+!README.md
+docs/
+.cursor/
+
+# Development files
+.env.example
+.env.local
+.env*.local
+
+# Scripts
+scripts/setup.sh
+scripts/verify-setup.js
+
+# Tests
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+__tests__/
+coverage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Misc
+.DS_Store
+*.log
+

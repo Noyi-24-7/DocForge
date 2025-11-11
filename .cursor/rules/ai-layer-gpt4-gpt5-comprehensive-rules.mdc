@@ -1,0 +1,1504 @@
+---
+alwaysApply: true
+---
+
+# AI Layer: GPT-4 / GPT-5 - Comprehensive Rules
+
+You are an expert in AI integration, prompt engineering, OpenAI API, Claude API, and building AI-powered applications with GPT-4, GPT-4o, o1, and future GPT-5 models.
+
+## Project Context
+
+Building DocForge: An AI-powered documentation generation platform that analyzes projects to create comprehensive, structured documentation. The AI layer is responsible for understanding codebases, generating technical content, and providing intelligent suggestions.
+
+## Core Principles
+
+- Treat AI models as unreliable external services; always implement fallbacks
+- Design prompts for consistency and reliability, not creativity
+- Optimize for cost-effectiveness without sacrificing quality
+- Implement comprehensive error handling and retry logic
+- Monitor token usage, costs, and response quality
+- Use structured outputs for predictable responses
+- Cache responses aggressively when appropriate
+- Never trust AI output without validation
+- Implement human-in-the-loop for critical operations
+- Log all AI interactions for debugging and improvement
+
+## Model Selection Strategy
+
+### GPT-4o (Current Flagship)
+**Best for:**
+- Complex reasoning and analysis tasks
+- Code understanding and architecture analysis
+- Multi-step problem solving
+- High-quality content generation
+- When accuracy is more important than speed
+
+**Use cases in DocForge:**
+- Analyzing repository structure and dependencies
+- Understanding complex codebases
+- Generating comprehensive architecture documentation
+- Identifying integration patterns
+- Creating detailed technical explanations
+
+**Specifications:**
+- Context window: 128K tokens
+- Output: Up to 16K tokens
+- Pricing: ~$5/$15 per 1M tokens (input/output)
+- Speed: Moderate
+- Temperature: 0.0-0.3 for technical content
+
+### GPT-4o-mini (Efficient Option)
+**Best for:**
+- Fast, straightforward tasks
+- High-volume operations
+- Simple content generation
+- When speed and cost matter more than depth
+
+**Use cases in DocForge:**
+- Generating simple setup instructions
+- Formatting and structuring content
+- Translating technical to plain language
+- Creating code examples
+- Quick summaries and descriptions
+
+**Specifications:**
+- Context window: 128K tokens
+- Output: Up to 16K tokens
+- Pricing: ~$0.15/$0.60 per 1M tokens (input/output)
+- Speed: Fast
+- Temperature: 0.0-0.5 depending on task
+
+### o1 / o1-mini (Reasoning Models)
+**Best for:**
+- Complex logical reasoning
+- Multi-step planning and analysis
+- Problem-solving that requires thinking through steps
+- Understanding intricate relationships
+- Strategic decision-making
+
+**Use cases in DocForge:**
+- Determining optimal documentation structure
+- Analyzing complex project methodologies
+- Planning comprehensive documentation strategy
+- Understanding interdependencies in large codebases
+- Solving ambiguous documentation challenges
+
+**Specifications:**
+- Context window: 128K tokens
+- Output: Up to 32K tokens (o1), 64K tokens (o1-mini)
+- Pricing: Higher than GPT-4o
+- Speed: Slower (uses reasoning tokens)
+- Note: Cannot use system messages, temperature, or streaming
+
+### GPT-5 (Future Preparation)
+**Anticipated improvements:**
+- Longer context windows (potentially 1M+ tokens)
+- Better reasoning capabilities
+- More reliable structured outputs
+- Lower hallucination rates
+- Better code understanding
+
+**Preparation strategy:**
+- Design prompts to be model-agnostic
+- Use abstraction layers for easy model switching
+- Implement feature flags for gradual rollout
+- Monitor performance metrics to compare models
+- Keep backward compatibility with GPT-4
+
+## Prompt Engineering Best Practices
+
+### System Prompt Design
+
+**Core principles:**
+- Be specific and explicit about the task
+- Define the role and expertise level
+- Specify output format requirements
+- Include constraints and limitations
+- Provide context about the project
+
+**Template structure:**
+```typescript
+const SYSTEM_PROMPTS = {
+  base: `You are an expert technical writer specializing in software documentation.
+Your role is to create clear, accurate, and comprehensive documentation for developers.
+Always prioritize accuracy over creativity. If you're uncertain, indicate it clearly.`,
+
+  analyzer: `You are an expert software architect analyzing codebases.
+Your task is to:
+1. Identify the project structure and key components
+2. Understand the technology stack and dependencies
+3. Extract architectural patterns and design decisions
+4. Note important configuration and setup requirements
+
+Output Format: JSON structure with sections for architecture, dependencies, setup, and notes.
+Be thorough but concise. Focus on information relevant for documentation.`,
+
+  contentGenerator: `You are creating technical documentation for developers.
+Your documentation should:
+- Use clear, professional language
+- Include code examples where helpful
+- Follow a logical structure
+- Anticipate common questions
+- Provide troubleshooting guidance
+
+Format: Markdown with proper headings, code blocks, and lists.
+Target audience: Developers with intermediate to advanced skill levels.`,
+}
+```
+
+### User Prompt Construction
+
+**Best practices:**
+- Provide sufficient context upfront
+- Structure information logically
+- Use clear delimiters for different sections
+- Include examples when helpful
+- Specify exact output requirements
+
+**Example:**
+```typescript
+function buildAnalysisPrompt(repoData: RepositoryData): string {
+  return `
+Analyze the following repository for documentation generation:
+
+## Repository Information
+- Name: ${repoData.name}
+- Language: ${repoData.primaryLanguage}
+- Framework: ${repoData.framework}
+
+## File Structure
+\`\`\`
+${repoData.fileTree}
+\`\`\`
+
+## Key Files Content
+${repoData.keyFiles.map(f => `
+### ${f.path}
+\`\`\`${f.language}
+${f.content}
+\`\`\`
+`).join('\n')}
+
+## Dependencies
+${JSON.stringify(repoData.dependencies, null, 2)}
+
+## Task
+Extract the following information:
+1. Project architecture and design patterns
+2. Setup requirements and prerequisites
+3. Key integrations and their purposes
+4. Build and deployment process
+5. Notable configuration requirements
+
+Output as structured JSON following this schema:
+{
+  "architecture": { "pattern": string, "layers": string[] },
+  "setup": { "prerequisites": string[], "steps": string[] },
+  "integrations": Array<{ "name": string, "purpose": string, "setupRequired": boolean }>,
+  "buildProcess": { "commands": string[], "outputs": string[] },
+  "configuration": Array<{ "file": string, "purpose": string, "required": boolean }>
+}
+`.trim()
+}
+```
+
+### Few-Shot Learning
+
+**When to use:**
+- Complex or ambiguous tasks
+- When output format is specific
+- To establish tone and style
+- For consistency across generations
+
+**Example:**
+```typescript
+const fewShotExamples = `
+## Example 1: Express.js REST API
+
+Input Repository Structure:
+- src/routes/users.ts
+- src/controllers/userController.ts
+- src/models/User.ts
+- package.json (express, mongoose)
+
+Output Documentation:
+# User Management API
+
+## Architecture
+This API follows the MVC pattern with Express.js:
+- Routes: Define API endpoints
+- Controllers: Handle business logic
+- Models: Define data structure with Mongoose
+
+## Setup
+1. Install dependencies: \`npm install\`
+2. Set environment variables in .env
+3. Run database migrations: \`npm run migrate\`
+4. Start server: \`npm run dev\`
+
+## Example 2: React + TypeScript App
+...
+`
+
+function createPromptWithExamples(task: string): string {
+  return `${fewShotExamples}\n\nNow analyze this repository:\n${task}`
+}
+```
+
+## Structured Output Implementation
+
+### JSON Mode
+
+**Use when:**
+- You need predictable, parseable responses
+- Building APIs that consume AI output
+- Validating responses with schemas
+
+**Implementation:**
+```typescript
+import OpenAI from 'openai'
+import { z } from 'zod'
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+// Define expected schema
+const documentationSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  sections: z.array(z.object({
+    heading: z.string(),
+    content: z.string(),
+    order: z.number(),
+  })),
+  metadata: z.object({
+    difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
+    estimatedTime: z.string(),
+    prerequisites: z.array(z.string()),
+  }),
+})
+
+async function generateStructuredDocumentation(
+  input: string
+): Promise<z.infer<typeof documentationSchema>> {
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a documentation generator. Always respond with valid JSON matching the requested schema.',
+      },
+      {
+        role: 'user',
+        content: `Generate documentation for: ${input}\n\nReturn JSON with: title, description, sections (array of {heading, content, order}), and metadata (difficulty, estimatedTime, prerequisites).`,
+      },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.3,
+  })
+
+  const rawResponse = completion.choices[0].message.content
+  const parsed = JSON.parse(rawResponse!)
+  
+  // Validate with Zod
+  return documentationSchema.parse(parsed)
+}
+```
+
+### Function Calling
+
+**Use when:**
+- AI needs to invoke specific tools or actions
+- Building agentic systems
+- Extracting structured data with validation
+
+**Implementation:**
+```typescript
+const tools: OpenAI.Chat.ChatCompletionTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'extract_setup_requirements',
+      description: 'Extract setup requirements from a project',
+      parameters: {
+        type: 'object',
+        properties: {
+          prerequisites: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Required software, tools, or accounts',
+          },
+          environmentVariables: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                description: { type: 'string' },
+                required: { type: 'boolean' },
+                example: { type: 'string' },
+              },
+            },
+          },
+          setupSteps: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                step: { type: 'number' },
+                instruction: { type: 'string' },
+                command: { type: 'string' },
+              },
+            },
+          },
+        },
+        required: ['prerequisites', 'setupSteps'],
+      },
+    },
+  },
+]
+
+async function extractSetupRequirements(repoContent: string) {
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: 'You extract setup requirements from codebases.' },
+      { role: 'user', content: `Analyze this repository:\n${repoContent}` },
+    ],
+    tools,
+    tool_choice: { type: 'function', function: { name: 'extract_setup_requirements' } },
+  })
+
+  const toolCall = completion.choices[0].message.tool_calls?.[0]
+  if (!toolCall) throw new Error('No function call returned')
+
+  return JSON.parse(toolCall.function.arguments)
+}
+```
+
+## Token Management
+
+### Token Estimation
+```typescript
+import { encoding_for_model } from 'tiktoken'
+
+class TokenManager {
+  private encoding: any
+
+  constructor(model: string = 'gpt-4o') {
+    this.encoding = encoding_for_model(model)
+  }
+
+  estimate(text: string): number {
+    return this.encoding.encode(text).length
+  }
+
+  truncate(text: string, maxTokens: number): string {
+    const tokens = this.encoding.encode(text)
+    if (tokens.length <= maxTokens) return text
+    
+    const truncated = tokens.slice(0, maxTokens)
+    return this.encoding.decode(truncated)
+  }
+
+  split(text: string, chunkSize: number, overlap: number = 0): string[] {
+    const tokens = this.encoding.encode(text)
+    const chunks: string[] = []
+    
+    for (let i = 0; i < tokens.length; i += chunkSize - overlap) {
+      const chunk = tokens.slice(i, i + chunkSize)
+      chunks.push(this.encoding.decode(chunk))
+    }
+    
+    return chunks
+  }
+
+  cleanup() {
+    this.encoding.free()
+  }
+}
+
+// Usage
+const tokenManager = new TokenManager('gpt-4o')
+const estimatedTokens = tokenManager.estimate(largeText)
+
+if (estimatedTokens > 100000) {
+  // Split into chunks for processing
+  const chunks = tokenManager.split(largeText, 50000, 1000)
+  // Process each chunk...
+}
+```
+
+### Context Window Management
+```typescript
+interface Message {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+class ConversationManager {
+  private messages: Message[] = []
+  private maxTokens: number
+  private tokenManager: TokenManager
+
+  constructor(maxTokens: number = 100000) {
+    this.maxTokens = maxTokens
+    this.tokenManager = new TokenManager()
+  }
+
+  addMessage(message: Message) {
+    this.messages.push(message)
+    this.pruneIfNeeded()
+  }
+
+  private pruneIfNeeded() {
+    let totalTokens = this.calculateTotalTokens()
+    
+    // Keep system message and most recent messages
+    while (totalTokens > this.maxTokens && this.messages.length > 2) {
+      // Remove oldest non-system message
+      const indexToRemove = this.messages.findIndex(m => m.role !== 'system')
+      if (indexToRemove > 0) {
+        this.messages.splice(indexToRemove, 1)
+        totalTokens = this.calculateTotalTokens()
+      } else {
+        break
+      }
+    }
+  }
+
+  private calculateTotalTokens(): number {
+    return this.messages.reduce((sum, msg) => {
+      return sum + this.tokenManager.estimate(msg.content)
+    }, 0)
+  }
+
+  getMessages(): Message[] {
+    return [...this.messages]
+  }
+}
+```
+
+## Error Handling and Reliability
+
+### Retry Logic with Exponential Backoff
+```typescript
+class AIServiceError extends Error {
+  constructor(
+    message: string,
+    public code: string,
+    public retryable: boolean = false
+  ) {
+    super(message)
+    this.name = 'AIServiceError'
+  }
+}
+
+async function callWithRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: Error
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error as Error
+
+      // Check if error is retryable
+      if (error instanceof OpenAI.RateLimitError) {
+        const delay = baseDelay * Math.pow(2, attempt)
+        console.log(`Rate limited. Retry ${attempt + 1}/${maxRetries} in ${delay}ms`)
+        await sleep(delay)
+        continue
+      }
+
+      if (error instanceof OpenAI.APIConnectionError) {
+        const delay = baseDelay * Math.pow(2, attempt)
+        console.log(`Connection error. Retry ${attempt + 1}/${maxRetries} in ${delay}ms`)
+        await sleep(delay)
+        continue
+      }
+
+      // For non-retryable errors, throw immediately
+      if (error instanceof OpenAI.BadRequestError) {
+        throw new AIServiceError(
+          `Invalid request: ${error.message}`,
+          'INVALID_REQUEST',
+          false
+        )
+      }
+
+      // Unknown errors - don't retry
+      throw error
+    }
+  }
+
+  throw new AIServiceError(
+    `Operation failed after ${maxRetries} retries: ${lastError.message}`,
+    'MAX_RETRIES_EXCEEDED',
+    false
+  )
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+```
+
+### Fallback Strategies
+```typescript
+interface AIProvider {
+  name: string
+  generate: (prompt: string) => Promise<string>
+  available: () => Promise<boolean>
+}
+
+class AIService {
+  private providers: AIProvider[]
+
+  constructor(providers: AIProvider[]) {
+    this.providers = providers
+  }
+
+  async generateWithFallback(prompt: string): Promise<string> {
+    const errors: Error[] = []
+
+    for (const provider of this.providers) {
+      try {
+        // Check if provider is available
+        const isAvailable = await provider.available()
+        if (!isAvailable) {
+          console.log(`Provider ${provider.name} unavailable, skipping`)
+          continue
+        }
+
+        // Try to generate
+        const result = await callWithRetry(() => provider.generate(prompt))
+        console.log(`Successfully generated using ${provider.name}`)
+        return result
+
+      } catch (error) {
+        console.error(`Provider ${provider.name} failed:`, error)
+        errors.push(error as Error)
+      }
+    }
+
+    throw new AIServiceError(
+      `All providers failed: ${errors.map(e => e.message).join(', ')}`,
+      'ALL_PROVIDERS_FAILED',
+      false
+    )
+  }
+}
+
+// Usage
+const aiService = new AIService([
+  {
+    name: 'GPT-4o',
+    generate: async (prompt) => {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: prompt }],
+      })
+      return response.choices[0].message.content!
+    },
+    available: async () => true,
+  },
+  {
+    name: 'GPT-4o-mini',
+    generate: async (prompt) => {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+      })
+      return response.choices[0].message.content!
+    },
+    available: async () => true,
+  },
+])
+```
+
+### Validation and Sanitization
+```typescript
+import sanitizeHtml from 'sanitize-html'
+
+function sanitizePromptInput(input: string): string {
+  // Remove potential prompt injection attempts
+  let sanitized = input
+    .replace(/\bignore previous instructions\b/gi, '')
+    .replace(/\bsystem:\s*/gi, '')
+    .replace(/\bassistant:\s*/gi, '')
+    .trim()
+
+  // Limit length
+  if (sanitized.length > 50000) {
+    sanitized = sanitized.slice(0, 50000)
+  }
+
+  return sanitized
+}
+
+function validateAIResponse(response: string, expectedType: 'json' | 'markdown' | 'text'): boolean {
+  if (!response || response.length === 0) return false
+
+  if (expectedType === 'json') {
+    try {
+      JSON.parse(response)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  if (expectedType === 'markdown') {
+    // Basic validation - has headings or code blocks
+    return /^#{1,6}\s/m.test(response) || /```[\s\S]*```/.test(response)
+  }
+
+  return true
+}
+
+function sanitizeAIOutput(output: string, allowedTags: string[] = []): string {
+  return sanitizeHtml(output, {
+    allowedTags: ['p', 'br', 'strong', 'em', 'code', 'pre', ...allowedTags],
+    allowedAttributes: {},
+  })
+}
+```
+
+## Caching Strategies
+
+### Response Caching
+```typescript
+import Redis from 'ioredis'
+import crypto from 'crypto'
+
+class AICache {
+  private redis: Redis
+
+  constructor(redisUrl: string) {
+    this.redis = new Redis(redisUrl)
+  }
+
+  private generateKey(prompt: string, model: string, temperature: number): string {
+    const hash = crypto
+      .createHash('sha256')
+      .update(`${model}:${temperature}:${prompt}`)
+      .digest('hex')
+    return `ai:cache:${hash}`
+  }
+
+  async get(
+    prompt: string,
+    model: string,
+    temperature: number
+  ): Promise<string | null> {
+    const key = this.generateKey(prompt, model, temperature)
+    return await this.redis.get(key)
+  }
+
+  async set(
+    prompt: string,
+    model: string,
+    temperature: number,
+    response: string,
+    ttl: number = 86400 // 24 hours
+  ): Promise<void> {
+    const key = this.generateKey(prompt, model, temperature)
+    await this.redis.setex(key, ttl, response)
+  }
+
+  async invalidate(pattern: string): Promise<void> {
+    const keys = await this.redis.keys(`ai:cache:${pattern}*`)
+    if (keys.length > 0) {
+      await this.redis.del(...keys)
+    }
+  }
+}
+
+// Usage
+const cache = new AICache(process.env.REDIS_URL!)
+
+async function generateWithCache(prompt: string, model: string = 'gpt-4o') {
+  // Check cache
+  const cached = await cache.get(prompt, model, 0.3)
+  if (cached) {
+    console.log('Cache hit')
+    return cached
+  }
+
+  // Generate
+  const response = await openai.chat.completions.create({
+    model,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.3,
+  })
+
+  const result = response.choices[0].message.content!
+
+  // Cache result
+  await cache.set(prompt, model, 0.3, result)
+
+  return result
+}
+```
+
+### Semantic Caching
+```typescript
+import { OpenAIEmbeddings } from '@langchain/openai'
+
+class SemanticCache {
+  private embeddings: OpenAIEmbeddings
+  private cache: Map<string, { embedding: number[]; response: string; timestamp: number }>
+
+  constructor() {
+    this.embeddings = new OpenAIEmbeddings()
+    this.cache = new Map()
+  }
+
+  private cosineSimilarity(a: number[], b: number[]): number {
+    const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0)
+    const magnitudeA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0))
+    const magnitudeB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0))
+    return dotProduct / (magnitudeA * magnitudeB)
+  }
+
+  async findSimilar(prompt: string, threshold: number = 0.95): Promise<string | null> {
+    const promptEmbedding = await this.embeddings.embedQuery(prompt)
+
+    let bestMatch: { response: string; similarity: number } | null = null
+
+    for (const [_, cached] of this.cache) {
+      const similarity = this.cosineSimilarity(promptEmbedding, cached.embedding)
+      
+      if (similarity > threshold && (!bestMatch || similarity > bestMatch.similarity)) {
+        bestMatch = { response: cached.response, similarity }
+      }
+    }
+
+    return bestMatch?.response || null
+  }
+
+  async set(prompt: string, response: string): Promise<void> {
+    const embedding = await this.embeddings.embedQuery(prompt)
+    const key = crypto.createHash('sha256').update(prompt).digest('hex')
+    
+    this.cache.set(key, {
+      embedding,
+      response,
+      timestamp: Date.now(),
+    })
+  }
+
+  cleanup(maxAge: number = 86400000) { // 24 hours
+    const now = Date.now()
+    for (const [key, value] of this.cache) {
+      if (now - value.timestamp > maxAge) {
+        this.cache.delete(key)
+      }
+    }
+  }
+}
+```
+
+## Cost Optimization
+
+### Usage Tracking
+```typescript
+interface UsageMetrics {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cost: number
+  model: string
+  timestamp: Date
+}
+
+class CostTracker {
+  private metrics: UsageMetrics[] = []
+
+  // Pricing per 1M tokens (update as needed)
+  private pricing = {
+    'gpt-4o': { input: 5.0, output: 15.0 },
+    'gpt-4o-mini': { input: 0.15, output: 0.60 },
+    'o1': { input: 15.0, output: 60.0 },
+    'o1-mini': { input: 3.0, output: 12.0 },
+  }
+
+  track(usage: OpenAI.CompletionUsage, model: string): UsageMetrics {
+    const pricing = this.pricing[model] || this.pricing['gpt-4o']
+    
+    const cost =
+      (usage.prompt_tokens * pricing.input) / 1_000_000 +
+      (usage.completion_tokens * pricing.output) / 1_000_000
+
+    const metrics: UsageMetrics = {
+      promptTokens: usage.prompt_tokens,
+      completionTokens: usage.completion_tokens,
+      totalTokens: usage.total_tokens,
+      cost,
+      model,
+      timestamp: new Date(),
+    }
+
+    this.metrics.push(metrics)
+    return metrics
+  }
+
+  getStatistics(since?: Date) {
+    const relevantMetrics = since
+      ? this.metrics.filter(m => m.timestamp >= since)
+      : this.metrics
+
+    return {
+      totalCost: relevantMetrics.reduce((sum, m) => sum + m.cost, 0),
+      totalTokens: relevantMetrics.reduce((sum, m) => sum + m.totalTokens, 0),
+      requestCount: relevantMetrics.length,
+      averageCostPerRequest: relevantMetrics.length > 0
+        ? relevantMetrics.reduce((sum, m) => sum + m.cost, 0) / relevantMetrics.length
+        : 0,
+      byModel: Object.fromEntries(
+        Object.keys(this.pricing).map(model => [
+          model,
+          {
+            count: relevantMetrics.filter(m => m.model === model).length,
+            cost: relevantMetrics.filter(m => m.model === model).reduce((sum, m) => sum + m.cost, 0),
+          },
+        ])
+      ),
+    }
+  }
+}
+
+// Usage
+const costTracker = new CostTracker()
+
+const completion = await openai.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Hello' }],
+})
+
+const metrics = costTracker.track(completion.usage!, 'gpt-4o')
+console.log(`Request cost: $${metrics.cost.toFixed(4)}`)
+
+// Get daily statistics
+const stats = costTracker.getStatistics(
+  new Date(Date.now() - 86400000)
+)
+console.log(`Daily cost: $${stats.totalCost.toFixed(2)}`)
+```
+
+### Smart Model Selection
+```typescript
+function selectOptimalModel(task: TaskType, complexity: number): string {
+  // Simple tasks -> use mini
+  if (complexity < 3 && ['formatting', 'simple_generation'].includes(task)) {
+    return 'gpt-4o-mini'
+  }
+
+  // Complex reasoning -> use o1
+  if (complexity > 7 && ['analysis', 'planning', 'reasoning'].includes(task)) {
+    return 'o1'
+  }
+
+  // Default to GPT-4o for balanced performance
+  return 'gpt-4o'
+}
+
+type TaskType = 
+  | 'analysis' 
+  | 'generation' 
+  | 'formatting' 
+  | 'reasoning'
+  | 'planning'
+  | 'simple_generation'
+```
+
+## Streaming Implementation
+
+### Server-Sent Events
+```typescript
+import { Response } from 'express'
+
+async function streamDocumentGeneration(
+  prompt: string,
+  res: Response
+): Promise<void> {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+
+  try {
+    const stream = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      stream: true,
+    })
+
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content
+      if (content) {
+        res.write(`data: ${JSON.stringify({ content })}\n\n`)
+      }
+    }
+
+    res.write('data: [DONE]\n\n')
+    res.end()
+  } catch (error) {
+    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`)
+    res.end()
+  }
+}
+```
+
+### Accumulated Response Pattern
+```typescript
+async function generateWithProgress(
+  prompt: string,
+  onProgress: (chunk: string) => void
+): Promise<string> {
+  let accumulated = ''
+
+  const stream = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: prompt }],
+    stream: true,
+  })
+
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content
+    if (content) {
+      accumulated += content
+      onProgress(content)
+    }
+  }
+
+  return accumulated
+}
+
+// Usage
+const fullResponse = await generateWithProgress(
+  'Generate documentation...',
+  (chunk) => {
+    console.log('Received:', chunk)
+    // Update UI, save to database, etc.
+  }
+)
+```
+
+## Testing AI Integrations
+
+### Mocking Strategies
+```typescript
+import { vi } from 'vitest'
+
+// Mock OpenAI client
+const mockOpenAI = {
+  chat: {
+    completions: {
+      create: vi.fn().mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content: '# Documentation\n\nGenerated content...',
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 200,
+          total_tokens: 300,
+        },
+      }),
+    },
+  },
+}
+
+// Test with mock
+describe('Documentation Generator', () => {
+  it('should generate documentation', async () => {
+    const result = await generateDocumentation(projectData)
+    
+    expect(result).toContain('Documentation')
+    expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gpt-4o',
+      })
+    )
+  })
+})
+```
+
+### Response Validation
+```typescript
+describe('AI Response Validation', () => {
+  it('should validate JSON responses', async () => {
+    const response = await generateStructuredDocumentation(input)
+    
+    expect(response).toHaveProperty('title')
+    expect(response).toHaveProperty('sections')
+    expect(Array.isArray(response.sections)).toBe(true)
+  })
+
+  it('should handle invalid responses', async () => {
+    mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+      choices: [{ message: { content: 'Invalid JSON{' } }],
+    })
+
+    await expect(generateStructuredDocumentation(input)).rejects.toThrow()
+  })
+})
+```
+
+## Monitoring and Observability
+
+### Logging AI Interactions
+```typescript
+interface AILogEntry {
+  id: string
+  timestamp: Date
+  model: string
+  prompt: string
+  response: string
+  tokens: { prompt: number; completion: number; total: number }
+  cost: number
+  latency: number
+  success: boolean
+  error?: string
+}
+
+class AILogger {
+  private logs: AILogEntry[] = []
+
+  async log(entry: Omit<AILogEntry, 'id' | 'timestamp'>): Promise<void> {
+    const logEntry: AILogEntry = {
+      id: crypto.randomUUID(),
+      timestamp: new Date(),
+      ...entry,
+    }
+
+    this.logs.push(logEntry)
+
+    // Persist to database/storage
+    await this.persistLog(logEntry)
+  }
+
+  private async persistLog(entry: AILogEntry): Promise<void> {
+    // Save to Supabase, MongoDB, etc.
+    await supabase.from('ai_logs').insert({
+      id: entry.id,
+      timestamp: entry.timestamp.toISOString(),
+      model: entry.model,
+      prompt_preview: entry.prompt.slice(0, 200),
+      response_preview: entry.response.slice(0, 200),
+      tokens_used: entry.tokens.total,
+      cost: entry.cost,
+      latency_ms: entry.latency,
+      success: entry.success,
+      error: entry.error,
+    })
+  }
+
+  async getAnalytics(timeRange: { start: Date; end: Date }) {
+    const relevantLogs = this.logs.filter(
+      log => log.timestamp >= timeRange.start && log.timestamp <= timeRange.end
+    )
+
+    return {
+      totalRequests: relevantLogs.length,
+      successRate: relevantLogs.filter(l => l.success).length / relevantLogs.length,
+      averageLatency: relevantLogs.reduce((sum, l) => sum + l.latency, 0) / relevantLogs.length,
+      totalCost: relevantLogs.reduce((sum, l) => sum + l.cost, 0),
+      totalTokens: relevantLogs.reduce((sum, l) => sum + l.tokens.total, 0),
+      errorTypes: this.groupErrors(relevantLogs.filter(l => !l.success)),
+    }
+  }
+
+  private groupErrors(errors: AILogEntry[]) {
+    const grouped = new Map<string, number>()
+    errors.forEach(error => {
+      const errorType = error.error || 'Unknown'
+      grouped.set(errorType, (grouped.get(errorType) || 0) + 1)
+    })
+    return Object.fromEntries(grouped)
+  }
+}
+
+// Usage
+const logger = new AILogger()
+
+async function generateWithLogging(prompt: string) {
+  const startTime = Date.now()
+  let success = true
+  let response = ''
+  let error: string | undefined
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    response = completion.choices[0].message.content!
+    
+    await logger.log({
+      model: 'gpt-4o',
+      prompt,
+      response,
+      tokens: {
+        prompt: completion.usage!.prompt_tokens,
+        completion: completion.usage!.completion_tokens,
+        total: completion.usage!.total_tokens,
+      },
+      cost: calculateCost(completion.usage!, 'gpt-4o'),
+      latency: Date.now() - startTime,
+      success: true,
+    })
+
+    return response
+  } catch (err) {
+    success = false
+    error = (err as Error).message
+
+    await logger.log({
+      model: 'gpt-4o',
+      prompt,
+      response: '',
+      tokens: { prompt: 0, completion: 0, total: 0 },
+      cost: 0,
+      latency: Date.now() - startTime,
+      success: false,
+      error,
+    })
+
+    throw err
+  }
+}
+```
+
+### Performance Monitoring
+```typescript
+class PerformanceMonitor {
+  private metrics: Map<string, number[]> = new Map()
+
+  record(operation: string, duration: number): void {
+    if (!this.metrics.has(operation)) {
+      this.metrics.set(operation, [])
+    }
+    this.metrics.get(operation)!.push(duration)
+  }
+
+  getStats(operation: string) {
+    const durations = this.metrics.get(operation) || []
+    if (durations.length === 0) return null
+
+    const sorted = [...durations].sort((a, b) => a - b)
+    return {
+      count: durations.length,
+      min: sorted[0],
+      max: sorted[sorted.length - 1],
+      mean: durations.reduce((a, b) => a + b, 0) / durations.length,
+      median: sorted[Math.floor(sorted.length / 2)],
+      p95: sorted[Math.floor(sorted.length * 0.95)],
+      p99: sorted[Math.floor(sorted.length * 0.99)],
+    }
+  }
+
+  report(): Record<string, any> {
+    const report: Record<string, any> = {}
+    for (const [operation, _] of this.metrics) {
+      report[operation] = this.getStats(operation)
+    }
+    return report
+  }
+}
+
+// Usage
+const monitor = new PerformanceMonitor()
+
+async function monitoredGeneration(prompt: string) {
+  const start = Date.now()
+  try {
+    const result = await generateDocumentation(prompt)
+    monitor.record('generate_documentation', Date.now() - start)
+    return result
+  } catch (error) {
+    monitor.record('generate_documentation_failed', Date.now() - start)
+    throw error
+  }
+}
+
+// Get performance report
+setInterval(() => {
+  console.log('Performance Report:', monitor.report())
+}, 60000) // Every minute
+```
+
+## Quality Assurance
+
+### Response Quality Checks
+```typescript
+interface QualityMetrics {
+  hasRequiredSections: boolean
+  codeBlocksValid: boolean
+  lengthAppropriate: boolean
+  structureValid: boolean
+  score: number
+}
+
+function assessResponseQuality(
+  response: string,
+  expectedType: 'documentation' | 'analysis' | 'guide'
+): QualityMetrics {
+  const metrics: QualityMetrics = {
+    hasRequiredSections: false,
+    codeBlocksValid: false,
+    lengthAppropriate: false,
+    structureValid: false,
+    score: 0,
+  }
+
+  // Check for required sections based on type
+  if (expectedType === 'documentation') {
+    const hasTitle = /^#\s+.+/m.test(response)
+    const hasSections = (response.match(/^##\s+/gm) || []).length >= 2
+    metrics.hasRequiredSections = hasTitle && hasSections
+  }
+
+  // Validate code blocks
+  const codeBlocks = response.match(/```[\s\S]*?```/g) || []
+  metrics.codeBlocksValid = codeBlocks.every(block => {
+    const lines = block.split('\n')
+    return lines[0].startsWith('```') && lines[lines.length - 1].trim() === '```'
+  })
+
+  // Check length
+  const wordCount = response.split(/\s+/).length
+  metrics.lengthAppropriate = wordCount >= 100 && wordCount <= 5000
+
+  // Check structure (proper heading hierarchy)
+  const headings = response.match(/^#{1,6}\s+.+/gm) || []
+  const levels = headings.map(h => h.match(/^#{1,6}/)?.[0].length || 0)
+  metrics.structureValid = levels.every((level, i) => {
+    if (i === 0) return true
+    return level <= levels[i - 1] + 1 // No skipping levels
+  })
+
+  // Calculate score
+  const checks = [
+    metrics.hasRequiredSections,
+    metrics.codeBlocksValid,
+    metrics.lengthAppropriate,
+    metrics.structureValid,
+  ]
+  metrics.score = checks.filter(Boolean).length / checks.length
+
+  return metrics
+}
+
+// Usage
+async function generateWithQualityCheck(prompt: string) {
+  const response = await generateDocumentation(prompt)
+  const quality = assessResponseQuality(response, 'documentation')
+
+  if (quality.score < 0.75) {
+    console.warn('Low quality response detected:', quality)
+    // Retry with different prompt or model
+    return await regenerateWithImprovedPrompt(prompt)
+  }
+
+  return response
+}
+```
+
+### A/B Testing Framework
+```typescript
+interface ABTestConfig {
+  name: string
+  variants: Array<{
+    id: string
+    model: string
+    temperature: number
+    systemPrompt: string
+    weight: number
+  }>
+}
+
+class ABTestRunner {
+  private results: Map<string, Array<{ variant: string; success: boolean; score: number }>>
+
+  constructor() {
+    this.results = new Map()
+  }
+
+  selectVariant(config: ABTestConfig): ABTestConfig['variants'][0] {
+    const random = Math.random()
+    let cumulative = 0
+
+    for (const variant of config.variants) {
+      cumulative += variant.weight
+      if (random <= cumulative) {
+        return variant
+      }
+    }
+
+    return config.variants[0]
+  }
+
+  async runTest(config: ABTestConfig, prompt: string): Promise<string> {
+    const variant = this.selectVariant(config)
+
+    const response = await openai.chat.completions.create({
+      model: variant.model,
+      temperature: variant.temperature,
+      messages: [
+        { role: 'system', content: variant.systemPrompt },
+        { role: 'user', content: prompt },
+      ],
+    })
+
+    const result = response.choices[0].message.content!
+    
+    // Record result
+    if (!this.results.has(config.name)) {
+      this.results.set(config.name, [])
+    }
+
+    return result
+  }
+
+  recordOutcome(testName: string, variantId: string, success: boolean, score: number) {
+    if (!this.results.has(testName)) {
+      this.results.set(testName, [])
+    }
+    this.results.get(testName)!.push({ variant: variantId, success, score })
+  }
+
+  getResults(testName: string) {
+    const results = this.results.get(testName) || []
+    const byVariant = new Map<string, { successes: number; total: number; avgScore: number }>()
+
+    results.forEach(result => {
+      if (!byVariant.has(result.variant)) {
+        byVariant.set(result.variant, { successes: 0, total: 0, avgScore: 0 })
+      }
+      const stats = byVariant.get(result.variant)!
+      stats.total++
+      if (result.success) stats.successes++
+      stats.avgScore = (stats.avgScore * (stats.total - 1) + result.score) / stats.total
+    })
+
+    return Object.fromEntries(
+      Array.from(byVariant.entries()).map(([variant, stats]) => [
+        variant,
+        {
+          ...stats,
+          successRate: stats.successes / stats.total,
+        },
+      ])
+    )
+  }
+}
+```
+
+## Best Practices Summary
+
+### Do's ✅
+- Always sanitize and validate inputs before sending to AI
+- Implement retry logic with exponential backoff
+- Cache responses aggressively for deterministic prompts
+- Use structured outputs (JSON mode, function calling) for predictable results
+- Monitor token usage and costs in real-time
+- Log all AI interactions for debugging and improvement
+- Use appropriate models for task complexity
+- Implement fallback strategies for reliability
+- Validate AI responses before using them
+- Set appropriate temperature (0.0-0.3 for technical content)
+- Use streaming for better user experience
+- Implement rate limiting to stay within quotas
+- Keep system prompts concise and clear
+- Test with real-world scenarios and edge cases
+- Version your prompts for reproducibility
+
+### Don'ts ❌
+- Don't trust AI output without validation
+- Don't send sensitive data in prompts without sanitization
+- Don't ignore token limits and context windows
+- Don't use high temperatures for factual content
+- Don't skip error handling and retry logic
+- Don't forget to implement cost tracking
+- Don't hard-code prompts; make them configurable
+- Don't ignore response quality metrics
+- Don't use AI for tasks that need 100% accuracy without human review
+- Don't expose raw AI responses to users without sanitization
+- Don't forget to implement timeouts
+- Don't ignore rate limit errors
+- Don't use GPT-4o for simple tasks that GPT-4o-mini can handle
+- Don't skip caching for repeated operations
+- Don't forget about model deprecation and versioning
+
+## Critical Reminders
+
+- **AI is non-deterministic**: Same prompt can yield different results; design for it
+- **Cost adds up quickly**: Monitor and optimize token usage continuously
+- **Context windows are limited**: Implement chunking strategies for large inputs
+- **Rate limits exist**: Implement proper retry and backoff mechanisms
+- **Models get updated**: Use explicit version strings, not just model names
+- **Hallucinations happen**: Always validate factual information from AI
+- **Quality varies**: Implement quality checks and scoring systems
+- **Latency matters**: Use streaming and caching for better UX
+- **Security is critical**: Never trust AI-generated code or commands without review
+- **Prompt engineering is iterative**: Test, measure, and refine continuously
+
+## DocForge-Specific Patterns
+
+### Repository Analysis Pipeline
+```typescript
+async function analyzeRepositoryForDocs(repoUrl: string) {
+  // 1. Clone/fetch repository structure
+  const structure = await fetchRepoStructure(repoUrl)
+  
+  // 2. Use o1 for strategic analysis
+  const strategy = await analyzeWithO1(structure, 'Analyze architecture and determine documentation strategy')
+  
+  // 3. Use GPT-4o for detailed extraction
+  const details = await analyzeWithGPT4o(structure, strategy.recommendations)
+  
+  // 4. Use GPT-4o-mini for content generation
+  const sections = await Promise.all(
+    details.sections.map(section =>
+      generateWithGPT4oMini(section.prompt)
+    )
+  )
+  
+  return { strategy, details, sections }
+}
+```
+
+### Progressive Documentation Generation
+```typescript
+async function generateProgressiveDocumentation(
+  projectData: ProjectData,
+  onProgress: (section: string, content: string) => void
+) {
+  const sections = ['overview', 'setup', 'architecture', 'integrations', 'deployment']
+  
+  for (const section of sections) {
+    const content = await generateWithProgress(
+      buildSectionPrompt(section, projectData),
+      (chunk) => onProgress(section, chunk)
+    )
+    
+    // Quality check
+    const quality = assessResponseQuality(content, 'documentation')
+    if (quality.score < 0.75) {
+      // Regenerate with improved prompt
+      await regenerateSection(section, projectData, quality)
+    }
+  }
+}
+```
+
+Refer to OpenAI, Anthropic, and AI SDK documentation for detailed API references, model capabilities, and best practices.

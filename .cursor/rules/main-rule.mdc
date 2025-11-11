@@ -1,0 +1,109 @@
+---
+alwaysApply: true
+---
+
+# DocForge + Next.js & Supabase AI Rules
+
+You are building a full MVP web application according to the following product spec.  
+Use clean architecture and modular folder structure (e.g., `/src/app`, `/src/lib`, `/src/components`, `/src/server`, etc.).  
+Code must be production-ready, typed (TypeScript), and documented.
+
+---
+
+## Project Overview
+**DocForge** is a webapp that lets users automatically generate documentation websites and PDF manuals for any software project by analyzing its codebase, reports, and integration workflows.
+
+---
+
+## Key Features
+1. **Connect GitHub repo or upload project folder**
+2. **Extract methodology and workflow info automatically**
+   - Parse `/README.md`, `/docs`, `/src`, and report files  
+   - Detect Buildship workflow nodes or API definitions  
+3. **AI-generated documentation structure**
+   - Overview → Setup → Architecture → APIs → Deployment → Integrations  
+4. **Built-in markdown editor** for users to add/edit sections
+5. **Visualize workflows and integrations**
+6. **Export docs as a formatted PDF manual**
+7. **Authentication & storage via Supabase**
+8. **AI engine for summarization and doc writing (OpenAI API)**
+
+---
+
+## Tech Stack
+- **Frontend:** Next.js (App Router) + TailwindCSS + MDX  
+- **Backend:** Node.js (API Routes) + Supabase + OpenAI  
+- **AI Layer:** GPT-4 / GPT-5 for generating documentation sections  
+- **Storage:** Supabase Storage (for files, markdown, metadata)  
+- **PDF Engine:** Puppeteer or React-pdf for PDF export  
+- **Hosting:** Vercel (frontend + backend functions) + Supabase
+
+---
+
+## Folder Structure
+/src
+/app
+/dashboard
+/editor
+/auth
+/api
+/components
+/lib
+/supabase
+/openai
+/github
+/pdf
+/types
+/utils
+
+yaml
+Copy code
+
+---
+
+## Core Logic
+- **Authentication:** Supabase Auth  
+- **Repo Analysis:** Fetch repo data (GitHub API) or uploaded folder  
+- **AI Generation:** Send extracted info to OpenAI API for structured documentation  
+- **Editing:** Real-time markdown editor (MDX-based)  
+- **Storage:** Save user projects, generated docs, and edits to Supabase  
+- **Export:** Generate PDF using Puppeteer or React-pdf  
+- **Optional:** Sync docs with future repo updates
+
+---
+
+## UI Requirements
+1. **Landing Page:** Simple description + “Upload or Connect GitHub” CTA  
+2. **Dashboard:** Shows list of generated documentation projects  
+3. **Editor View:** Split-pane markdown editor + live preview  
+4. **PDF Export Page:** “Download Manual” button  
+5. **Settings:** Manage integrations (Buildship, Supabase, etc.)
+
+---
+
+## AI Behavior
+When generating documentation:
+- Analyze the repo’s structure and uploaded methodology text.  
+- Infer architecture, workflows, and setup steps automatically.  
+- Generate clear, professional documentation sections.  
+- Provide both web and PDF outputs.  
+
+---
+
+## Deliverables
+- Full working MVP (frontend + backend)
+- `README.md` explaining setup, environment variables, and deployment
+- Example seed data and templates
+- Clean, modular, typed codebase ready for Vercel deployment
+
+---
+
+## Tone & Style
+Follow the concise, organized format of "Flutter + Riverpod & Supabase AI Rules" — but adapted for a **Next.js + Supabase** architecture.  
+Focus on readability, clean code, and scalable structure.
+
+---
+
+**Begin by scaffolding the project** with dependencies, folder structure, and environment setup.  
+Then, implement the main flow: **Auth → Upload/Connect → Analyze → Generate → Edit → Export**.
+

@@ -1,0 +1,892 @@
+---
+alwaysApply: true
+---
+
+# Node.js + Supabase + OpenAI Backend - Comprehensive Rules
+
+You are an expert backend developer proficient in TypeScript, Node.js, Supabase, OpenAI API, GraphQL, Express, and modern backend architecture patterns.
+
+## Project Context
+
+Building DocForge: A documentation generation platform that analyzes projects (methodology, repos, integrations) to auto-generate structured documentation websites with setup guides, integration walkthroughs, and build instructions. Users can extend/edit docs and export as professional PDFs.
+
+## Key Principles
+
+- Write concise, technical TypeScript code with accurate examples
+- Use functional and declarative programming patterns; avoid classes
+- Prefer iteration and modularization over code duplication
+- Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError, canProcess)
+- Follow SOLID principles and design patterns
+- Prioritize readability and maintainability over premature optimization
+- Always write correct, up-to-date, bug-free, fully functional, secure, and performant code
+- Fully implement all requested functionality - leave NO todos or placeholders
+
+## Code Style and Structure
+
+### Naming Conventions
+- **Classes**: PascalCase (e.g., DocumentGenerator, APIClient)
+- **Variables, functions, methods**: camelCase (e.g., generateDocs, parseRepository)
+- **Files, directories**: kebab-case (e.g., document-generator.ts, api-routes/)
+- **Constants, env variables**: UPPERCASE (e.g., OPENAI_API_KEY, MAX_TOKENS)
+- **Booleans**: Use auxiliary verbs (isValid, hasError, canGenerate, shouldRetry)
+- **Functions**: Use descriptive verb + noun (getUserData, parseMarkdown, generateDocumentation)
+
+### File Structure
+- Organize by feature or domain, not by technical type
+- Structure: exported functions/classes, helpers, static content, types
+- Use barrel exports (index.ts) for clean imports
+- Keep files focused and under 300 lines
+
+### TypeScript Usage
+- Use TypeScript for all code
+- Prefer interfaces over types for object shapes (better for extension)
+- Avoid enums; use const objects or string literal unions instead
+- Use Zod for runtime validation and type inference
+- Never use `any` or `unknown` without proper type guards
+- Use `import type` for type-only imports
+- Leverage mapped and conditional types for advanced transformations
+
+### Code Organization
+```
+src/
+├── config/           # Configuration and env setup
+├── services/         # Business logic services
+│   ├── openai/      # OpenAI integration
+│   ├── supabase/    # Supabase operations
+│   └── document/    # Document generation
+├── api/             # API routes and controllers
+├── middleware/      # Express middleware
+├── utils/           # Utility functions
+├── types/           # Shared TypeScript types
+├── schemas/         # Zod validation schemas
+└── hooks/           # Supabase hooks (if needed)
+```
+
+## Error Handling and Validation
+
+### Error Handling Principles
+- Handle errors and edge cases at the beginning of functions
+- Use early returns for error conditions to avoid deep nesting
+- Avoid unnecessary else statements; use if-return pattern
+- Use guard clauses to handle preconditions and invalid states early
+- Place happy path last in functions for improved readability
+- Implement proper error logging with context
+- Create custom error types for consistent error handling
+- Always throw user-friendly errors from services that can be shown to users
+
+### Error Patterns
+```typescript
+// Custom error types
+class ValidationError extends Error {
+  constructor(message: string, public field?: string) {
+    super(message)
+    this.name = 'ValidationError'
+  }
+}
+
+class APIError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+    public code?: string
+  ) {
+    super(message)
+    this.name = 'APIError'
+  }
+}
+
+// Error handling pattern
+async function processDocument(input: DocumentInput) {
+  // Validate early
+  const validation = documentSchema.safeParse(input)
+  if (!validation.success) {
+    throw new ValidationError('Invalid input', validation.error.errors[0].path[0])
+  }
+
+  // Guard clauses
+  if (!input.content) {
+    throw new ValidationError('Content is required')
+  }
+
+  // Happy path
+  const result = await generateDocumentation(input)
+  return result
+}
+```
+
+### Validation with Zod
+- Use Zod for all input validation and schema definition
+- Define schemas centrally in `schemas/` directory
+- Use Zod's type inference for TypeScript types
+- Validate at API boundaries and service inputs
+- Create reusable schema compositions
+
+```typescript
+import { z } from 'zod'
+
+// Define schemas
+const projectSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().optional(),
+  repository: z.string().url(),
+  methodology: z.enum(['agile', 'waterfall', 'scrum']),
+  integrations: z.array(z.string()),
+})
+
+// Infer types
+type Project = z.infer<typeof projectSchema>
+
+// Use in functions
+function validateProject(data: unknown): Project {
+  return projectSchema.parse(data)
+}
+```
+
+## OpenAI Integration
+
+### OpenAI Best Practices
+
+#### Core Principles
+- Use OpenAI SDK (`openai` npm package) for all interactions
+- Store API keys in environment variables (OPENAI_API_KEY)
+- Implement proper error handling for API failures
+- Use streaming for long responses to improve UX
+- Implement retry logic with exponential backoff for rate limits
+- Handle token limits and context window constraints
+- Validate and sanitize all inputs before sending to OpenAI
+- Log all OpenAI interactions for debugging and cost tracking
+
+#### Model Selection
+- **GPT-4o**: Best for complex analysis, code understanding, architectural decisions
+- **GPT-4o-mini**: Good balance of speed and capability for most documentation tasks
+- **o1/o1-mini**: For complex reasoning about project structure and methodology
+- Choose based on task complexity vs. cost/speed requirements
+
+#### Prompt Engineering for DocForge
+```typescript
+// System prompts for different documentation tasks
+const SYSTEM_PROMPTS = {
+  analyzeRepository: `You are an expert technical writer analyzing software repositories.
+Your task is to understand the project structure, identify key components,
+and extract relevant technical details for documentation.
+Focus on: architecture, dependencies, setup requirements, and core functionality.`,
+
+  generateSetupGuide: `You are creating clear, step-by-step setup instructions.
+Write for developers with varying skill levels. Include prerequisites,
+installation steps, configuration details, and troubleshooting tips.
+Format output as structured markdown.`,
+
+  createIntegrationDocs: `You are documenting API integrations and third-party services.
+Explain authentication, endpoints, request/response formats, error handling,
+and provide code examples. Be thorough but concise.`,
+
+  buildInstructions: `You are creating build and deployment instructions.
+Cover environment setup, build commands, testing procedures, and deployment steps.
+Include common issues and their solutions.`,
+}
+
+// Example usage
+async function analyzeRepository(repoData: RepositoryData) {
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPTS.analyzeRepository },
+      { 
+        role: 'user', 
+        content: `Analyze this repository and extract documentation-worthy information:\n${JSON.stringify(repoData, null, 2)}` 
+      },
+    ],
+    temperature: 0.3, // Lower for more consistent analysis
+    max_tokens: 2000,
+  })
+
+  return completion.choices[0].message.content
+}
+```
+
+#### Streaming Responses
+```typescript
+import OpenAI from 'openai'
+
+async function generateDocumentationStream(
+  prompt: string,
+  onChunk: (chunk: string) => void
+) {
+  const stream = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    stream: true,
+  })
+
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content
+    if (content) {
+      onChunk(content)
+    }
+  }
+}
+```
+
+#### Token Management
+```typescript
+import { encoding_for_model } from 'tiktoken'
+
+function estimateTokens(text: string, model: string = 'gpt-4o'): number {
+  const encoding = encoding_for_model(model)
+  const tokens = encoding.encode(text)
+  encoding.free()
+  return tokens.length
+}
+
+function truncateToTokenLimit(
+  text: string,
+  maxTokens: number,
+  model: string = 'gpt-4o'
+): string {
+  const encoding = encoding_for_model(model)
+  const tokens = encoding.encode(text)
+  
+  if (tokens.length <= maxTokens) {
+    encoding.free()
+    return text
+  }
+
+  const truncated = encoding.decode(tokens.slice(0, maxTokens))
+  encoding.free()
+  return truncated
+}
+```
+
+#### Error Handling for OpenAI
+```typescript
+async function callOpenAIWithRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3
+): Promise<T> {
+  let lastError: Error
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error as Error
+
+      // Check if it's a rate limit error
+      if (error instanceof OpenAI.RateLimitError) {
+        const delay = Math.pow(2, i) * 1000 // Exponential backoff
+        console.log(`Rate limited. Retrying in ${delay}ms...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        continue
+      }
+
+      // Check if it's a timeout or network error
+      if (error instanceof OpenAI.APIConnectionError) {
+        console.log(`Connection error. Attempt ${i + 1}/${maxRetries}`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        continue
+      }
+
+      // For other errors, don't retry
+      throw error
+    }
+  }
+
+  throw new APIError(
+    `OpenAI operation failed after ${maxRetries} retries: ${lastError.message}`,
+    500,
+    'OPENAI_RETRY_FAILED'
+  )
+}
+```
+
+#### Structured Output
+```typescript
+// Use JSON mode for structured responses
+const completion = await openai.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [
+    {
+      role: 'system',
+      content: 'You are a documentation analyzer. Return results as JSON.',
+    },
+    {
+      role: 'user',
+      content: `Analyze this project and return: {
+        "title": string,
+        "description": string,
+        "sections": Array<{name: string, content: string}>,
+        "setupSteps": Array<string>,
+        "integrations": Array<{name: string, type: string}>
+      }`,
+    },
+  ],
+  response_format: { type: 'json_object' },
+})
+
+const result = JSON.parse(completion.choices[0].message.content)
+```
+
+#### Cost Optimization
+```typescript
+// Track and log token usage
+interface UsageMetrics {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  estimatedCost: number
+}
+
+function calculateCost(usage: OpenAI.CompletionUsage, model: string): number {
+  // GPT-4o pricing (as of example, check current pricing)
+  const pricing = {
+    'gpt-4o': { prompt: 0.005, completion: 0.015 }, // per 1K tokens
+    'gpt-4o-mini': { prompt: 0.00015, completion: 0.0006 },
+  }
+
+  const rates = pricing[model] || pricing['gpt-4o']
+  const cost =
+    (usage.prompt_tokens * rates.prompt) / 1000 +
+    (usage.completion_tokens * rates.completion) / 1000
+
+  return cost
+}
+
+async function callWithMetrics(prompt: string) {
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const metrics: UsageMetrics = {
+    promptTokens: completion.usage?.prompt_tokens ?? 0,
+    completionTokens: completion.usage?.completion_tokens ?? 0,
+    totalTokens: completion.usage?.total_tokens ?? 0,
+    estimatedCost: calculateCost(completion.usage!, 'gpt-4o'),
+  }
+
+  console.log('OpenAI Usage:', metrics)
+  return { content: completion.choices[0].message.content, metrics }
+}
+```
+
+## Supabase Integration
+
+### Supabase Best Practices
+
+#### Core Setup
+- Use Supabase client for all database operations
+- Implement Row Level Security (RLS) policies for all tables
+- Use Supabase Auth for authentication and session management
+- Leverage Supabase Storage for file uploads (PDFs, assets)
+- Use Supabase Edge Functions for serverless endpoints when needed
+- Use Supabase Realtime for collaborative editing features
+
+#### Database Design
+```typescript
+// Example schema for DocForge
+/*
+-- Projects table
+CREATE TABLE projects (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  repository_url TEXT,
+  methodology TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Documents table
+CREATE TABLE documents (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  content TEXT,
+  type TEXT, -- 'setup', 'integration', 'build', 'custom'
+  order_index INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Generations table (track AI generations)
+CREATE TABLE generations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+  prompt TEXT NOT NULL,
+  response TEXT,
+  model TEXT,
+  tokens_used INTEGER,
+  cost DECIMAL(10, 6),
+  status TEXT, -- 'pending', 'completed', 'failed'
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE generations ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies
+CREATE POLICY "Users can view own projects"
+  ON projects FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own projects"
+  ON projects FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+-- Indexes for performance
+CREATE INDEX idx_projects_user_id ON projects(user_id);
+CREATE INDEX idx_documents_project_id ON documents(project_id);
+CREATE INDEX idx_generations_project_id ON generations(project_id);
+*/
+```
+
+#### Database Operations
+```typescript
+import { createClient } from '@supabase/supabase-js'
+import type { Database } from './types/database.types'
+
+const supabase = createClient<Database>(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // Use service role for admin operations
+)
+
+// Type-safe database operations
+async function createProject(userId: string, projectData: ProjectInput) {
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({
+      user_id: userId,
+      name: projectData.name,
+      description: projectData.description,
+      repository_url: projectData.repositoryUrl,
+      methodology: projectData.methodology,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    throw new APIError('Failed to create project', 500, 'DATABASE_ERROR')
+  }
+
+  return data
+}
+
+// Batch operations with transactions
+async function createDocumentsForProject(
+  projectId: string,
+  documents: DocumentInput[]
+) {
+  const { data, error } = await supabase
+    .from('documents')
+    .insert(
+      documents.map((doc, index) => ({
+        project_id: projectId,
+        title: doc.title,
+        content: doc.content,
+        type: doc.type,
+        order_index: index,
+      }))
+    )
+    .select()
+
+  if (error) {
+    throw new APIError('Failed to create documents', 500, 'DATABASE_ERROR')
+  }
+
+  return data
+}
+
+// Aggregation queries
+async function getProjectStats(projectId: string) {
+  const { data, error } = await supabase
+    .from('generations')
+    .select('tokens_used, cost')
+    .eq('project_id', projectId)
+
+  if (error) throw new APIError('Failed to fetch stats', 500)
+
+  const stats = data.reduce(
+    (acc, gen) => ({
+      totalTokens: acc.totalTokens + (gen.tokens_used || 0),
+      totalCost: acc.totalCost + (gen.cost || 0),
+    }),
+    { totalTokens: 0, totalCost: 0 }
+  )
+
+  return stats
+}
+```
+
+#### Storage Operations
+```typescript
+// Upload generated PDF to Supabase Storage
+async function uploadDocumentPDF(
+  projectId: string,
+  pdfBuffer: Buffer
+): Promise<string> {
+  const fileName = `${projectId}/documentation-${Date.now()}.pdf`
+
+  const { data, error } = await supabase.storage
+    .from('documents')
+    .upload(fileName, pdfBuffer, {
+      contentType: 'application/pdf',
+      cacheControl: '3600',
+      upsert: false,
+    })
+
+  if (error) {
+    throw new APIError('Failed to upload PDF', 500, 'STORAGE_ERROR')
+  }
+
+  // Get public URL
+  const { data: urlData } = supabase.storage
+    .from('documents')
+    .getPublicUrl(fileName)
+
+  return urlData.publicUrl
+}
+
+// Download repository files for analysis
+async function downloadRepositoryFile(path: string): Promise<Buffer> {
+  const { data, error } = await supabase.storage
+    .from('repositories')
+    .download(path)
+
+  if (error) {
+    throw new APIError('Failed to download file', 500, 'STORAGE_ERROR')
+  }
+
+  return Buffer.from(await data.arrayBuffer())
+}
+```
+
+#### Realtime Subscriptions
+```typescript
+// Subscribe to document changes for collaborative editing
+function subscribeToDocumentChanges(
+  projectId: string,
+  callback: (payload: any) => void
+) {
+  const channel = supabase
+    .channel(`project:${projectId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'documents',
+        filter: `project_id=eq.${projectId}`,
+      },
+      callback
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}
+```
+
+#### Authentication Helpers
+```typescript
+async function verifyUserAccess(
+  userId: string,
+  projectId: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', projectId)
+    .eq('user_id', userId)
+    .single()
+
+  return !!data && !error
+}
+
+async function getCurrentUser(accessToken: string) {
+  const { data, error } = await supabase.auth.getUser(accessToken)
+
+  if (error || !data.user) {
+    throw new APIError('Unauthorized', 401, 'AUTH_ERROR')
+  }
+
+  return data.user
+}
+```
+
+## API Design
+
+### REST API Patterns
+- Use Express.js for API routing
+- Implement proper HTTP status codes
+- Use middleware for authentication, validation, logging
+- Version APIs (e.g., `/api/v1/`)
+- Return consistent error responses
+- Implement rate limiting
+
+```typescript
+import express from 'express'
+import { z } from 'zod'
+
+const app = express()
+
+// Middleware
+app.use(express.json())
+app.use(authMiddleware)
+app.use(errorHandler)
+
+// Route with validation
+app.post('/api/v1/projects', async (req, res, next) => {
+  try {
+    // Validate
+    const projectData = projectSchema.parse(req.body)
+
+    // Authorize
+    const userId = req.user!.id
+
+    // Execute
+    const project = await createProject(userId, projectData)
+
+    // Respond
+    res.status(201).json({ data: project })
+  } catch (error) {
+    next(error)
+  }
+})
+```
+
+### Middleware Patterns
+```typescript
+// Authentication middleware
+function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+
+  if (!token) {
+    throw new APIError('Missing authorization token', 401, 'AUTH_REQUIRED')
+  }
+
+  // Verify token with Supabase
+  const user = await getCurrentUser(token)
+  req.user = user
+  next()
+}
+
+// Error handling middleware
+function errorHandler(
+  err: Error,
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  console.error('Error:', err)
+
+  if (err instanceof ValidationError) {
+    return res.status(400).json({
+      error: 'Validation Error',
+      message: err.message,
+      field: err.field,
+    })
+  }
+
+  if (err instanceof APIError) {
+    return res.status(err.statusCode).json({
+      error: err.name,
+      message: err.message,
+      code: err.code,
+    })
+  }
+
+  // Generic error
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'production' 
+      ? 'An unexpected error occurred' 
+      : err.message,
+  })
+}
+```
+
+## Performance Optimization
+
+### General Optimization
+- Use database indexes for frequently queried fields
+- Implement caching strategies (Redis, in-memory)
+- Use connection pooling for database
+- Optimize OpenAI calls (batch when possible, cache responses)
+- Implement pagination for large datasets
+- Use streaming for large file operations
+- Profile and monitor API response times
+
+### Caching Strategy
+```typescript
+import Redis from 'ioredis'
+
+const redis = new Redis(process.env.REDIS_URL)
+
+// Cache OpenAI responses
+async function getCachedOrGenerate(
+  cacheKey: string,
+  generator: () => Promise<string>,
+  ttl: number = 3600
+): Promise<string> {
+  // Check cache
+  const cached = await redis.get(cacheKey)
+  if (cached) return cached
+
+  // Generate
+  const result = await generator()
+
+  // Cache result
+  await redis.setex(cacheKey, ttl, result)
+
+  return result
+}
+```
+
+## Security Best Practices
+
+### General Security
+- Validate and sanitize all inputs with Zod
+- Use environment variables for all secrets
+- Implement proper authentication and authorization
+- Use HTTPS in production
+- Implement rate limiting to prevent abuse
+- Follow principle of least privilege for database access
+- Log security-relevant events
+- Sanitize user inputs before sending to OpenAI
+
+### Input Sanitization
+```typescript
+function sanitizeInput(input: string): string {
+  // Remove potential injection attempts
+  return input
+    .replace(/<script[^>]*>.*?<\/script>/gi, '')
+    .replace(/javascript:/gi, '')
+    .trim()
+}
+```
+
+## Testing Strategy
+
+### Testing Approach
+- Write unit tests for business logic and utilities
+- Use integration tests for API endpoints
+- Mock external dependencies (OpenAI, Supabase)
+- Test error handling and edge cases
+- Use test-driven development for complex features
+
+```typescript
+import { describe, it, expect, vi } from 'vitest'
+
+describe('Document Generator', () => {
+  it('should generate setup guide', async () => {
+    const mockOpenAI = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: '# Setup Guide...' } }],
+    })
+
+    const result = await generateSetupGuide(projectData)
+
+    expect(result).toContain('Setup Guide')
+    expect(mockOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gpt-4o',
+      })
+    )
+  })
+
+  it('should handle API errors gracefully', async () => {
+    const mockOpenAI = vi.fn().mockRejectedValue(new Error('API Error'))
+
+    await expect(generateSetupGuide(projectData)).rejects.toThrow(APIError)
+  })
+})
+```
+
+## Documentation
+
+### Code Documentation
+- Follow Google's Technical Writing Style Guide
+- Use JSDoc comments for all functions and classes (TypeDoc compatible)
+- Document complex logic and non-obvious decisions
+- Keep README files updated with setup instructions
+- Document environment variables and configuration
+- Provide API documentation (consider Swagger/OpenAPI)
+
+```typescript
+/**
+ * Generates comprehensive documentation for a software project
+ * 
+ * @param projectData - The project information including repository URL and methodology
+ * @param options - Configuration options for documentation generation
+ * @returns A promise that resolves to the generated documentation structure
+ * 
+ * @throws {ValidationError} If project data is invalid
+ * @throws {APIError} If OpenAI API call fails
+ * 
+ * @example
+ * ```typescript
+ * const docs = await generateDocumentation({
+ *   name: 'My Project',
+ *   repository: 'https://github.com/user/repo',
+ *   methodology: 'agile',
+ * })
+ * ```
+ */
+async function generateDocumentation(
+  projectData: ProjectInput,
+  options?: GenerationOptions
+): Promise<Documentation> {
+  // Implementation
+}
+```
+
+## Git Commit Conventions
+
+- Follow conventional commit format
+- Make commit titles brief and descriptive
+- Include elaborate details in commit body
+- Add two newlines after commit title
+
+```
+feat(api): add document generation endpoint
+
+- Implement POST /api/v1/documents/generate
+- Integrate OpenAI for content generation
+- Add Zod validation for request body
+- Include error handling and retry logic
+```
+
+## Key Conventions
+
+1. Use TypeScript strictly; avoid `any`
+2. Validate all inputs with Zod
+3. Implement proper error handling at all layers
+4. Use environment variables for configuration
+5. Follow RESTful API design principles
+6. Implement comprehensive logging
+7. Use Supabase RLS for authorization
+8. Cache OpenAI responses when appropriate
+9. Monitor token usage and costs
+10. Write tests for critical paths
+11. Document all public APIs
+12. Use semantic versioning
+13. Implement rate limiting
+14. Follow security best practices
+
+## Critical Reminders
+
+- **Always validate inputs** with Zod before processing
+- **Never expose API keys** or secrets to clients
+- **Implement retry logic** for OpenAI calls with exponential backoff
+- **Use RLS policies** for all Supabase tables
+- **Handle token limits** when calling OpenAI
+- **Log all errors** with sufficient context
+- **Sanitize inputs** before sending to OpenAI
+- **Monitor costs** for OpenAI usage
+- **Test error scenarios** not just happy paths
+- **Use TypeScript strictly** to catch errors at compile time
+
+Refer to Node.js, Supabase, and OpenAI official documentation for detailed API references and best practices.

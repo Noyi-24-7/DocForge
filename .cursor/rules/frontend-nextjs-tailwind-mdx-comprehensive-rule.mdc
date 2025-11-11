@@ -1,0 +1,534 @@
+---
+alwaysApply: true
+---
+
+# Next.js + Tailwind + MDX - Comprehensive Rules
+
+You are an expert full-stack developer proficient in TypeScript, React, Next.js 14 App Router, Tailwind CSS, Shadcn UI, Radix UI, and MDX.
+
+## Key Principles
+
+- Write concise, technical TypeScript code with accurate examples
+- Use functional and declarative programming patterns; avoid classes
+- Prefer iteration and modularization over code duplication
+- Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError, canSubmit)
+- Structure files: exported component, subcomponents, helpers, static content, types
+- Follow the user's requirements carefully and to the letter
+- Always write correct, up-to-date, bug-free, fully functional, secure, and performant code
+- Fully implement all requested functionality - leave NO todos, placeholders, or missing pieces
+- Be concise in explanations, but thorough in code
+
+## Code Style and Structure
+
+### Naming Conventions
+- Use lowercase with dashes for directories (e.g., components/auth-wizard)
+- Use kebab-case for component files (e.g., my-component.tsx)
+- Favor named exports for components
+- Use PascalCase for component names in code
+- Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError)
+
+### TypeScript Usage
+- Use TypeScript for all code; prefer interfaces over types
+- Avoid enums; use maps or const objects instead
+- Use functional components with TypeScript interfaces
+- Avoid dynamic and any types; always use explicit types
+- Define proper types for all props, state, and function parameters
+
+### Code Organization
+- Organize files by feature or domain, not by type
+- Keep components small and focused (single responsibility)
+- Extract reusable logic into custom hooks
+- Use descriptive file names that reflect component purpose
+- Group related components in feature directories
+
+## Next.js 14 App Router Best Practices
+
+### Server Components (Default)
+- Favor React Server Components (RSC) and Next.js SSR features
+- Keep components as Server Components by default
+- Use Server Components for:
+  - Static content and layouts
+  - Data fetching at the component level
+  - Accessing backend resources directly
+  - SEO-critical content
+
+### Client Components ('use client')
+- Minimize 'use client' usage; keep client components small and isolated
+- Use Client Components only when necessary:
+  - Interactive event handlers (onClick, onChange, etc.)
+  - Browser APIs (localStorage, window, etc.)
+  - State management (useState, useReducer)
+  - Effect hooks (useEffect)
+  - Custom hooks that use client-only features
+- Wrap client components in Suspense with fallback for better UX
+- Push 'use client' boundaries down the component tree
+
+### Data Fetching
+- Use Server Components for data fetching when possible
+- Implement loading states with loading.tsx files
+- Implement error handling with error.tsx files
+- Use Next.js fetch with caching strategies:
+  - `cache: 'force-cache'` for static data (default)
+  - `cache: 'no-store'` for dynamic data
+  - `next: { revalidate: N }` for ISR
+- Use parallel data fetching with Promise.all() when appropriate
+- Implement proper error boundaries for data fetching failures
+
+### File-Based Routing
+- Use App Router file conventions:
+  - page.tsx for routes
+  - layout.tsx for shared layouts
+  - loading.tsx for loading states
+  - error.tsx for error handling
+  - not-found.tsx for 404 pages
+  - route.ts for API routes
+- Implement dynamic routes with [slug] folders
+- Use route groups with (folder-name) for organization without affecting URL
+- Leverage parallel routes with @folder convention when needed
+
+### Layouts and Templates
+- Create nested layouts for shared UI patterns
+- Use layout.tsx for persistent UI across routes
+- Implement proper metadata in layouts and pages
+- Use template.tsx when you need to re-render on navigation
+
+## State Management
+
+### URL State Management
+- Use nuqs for URL search parameter state management
+- Prefer URL state over client state when appropriate
+- Use searchParams in Server Components
+- Use useSearchParams() hook in Client Components
+
+### Client State
+- Use modern solutions like Zustand for global client state
+- Keep state as local as possible
+- Lift state only when necessary
+- Use React Context sparingly; prefer composition
+
+### Server State
+- Use TanStack Query (React Query) for server state management
+- Implement proper cache invalidation strategies
+- Use optimistic updates for better UX
+- Handle loading and error states consistently
+
+## Styling with Tailwind CSS
+
+### Tailwind Best Practices
+- Use Tailwind utility classes extensively
+- Leverage Tailwind's responsive design utilities (sm:, md:, lg:, xl:, 2xl:)
+- Use mobile-first approach for responsive design
+- Utilize Tailwind's color palette and spacing scale for consistency
+- **Never use @apply directive** - use utility classes directly
+- Implement custom theme extensions in tailwind.config.ts when needed
+- Use CSS variables for dynamic theming when necessary
+
+### Component Styling
+- Use Shadcn UI and Radix UI for pre-built accessible components
+- Allow UI and Overriding when asked to or when requested if specific styling files are added, eg text styling and button styling
+- Customize Shadcn components using Tailwind utilities
+- Maintain consistent spacing, colors, and typography through design tokens
+- Use Tailwind's arbitrary values [value] sparingly
+- Implement dark mode using Tailwind's dark: variant
+
+### Responsive Design
+- Design mobile-first, then enhance for larger screens
+- Use Tailwind's responsive prefixes consistently
+- Test layouts on multiple screen sizes
+- Use container queries when appropriate with @tailwindcss/container-queries
+
+## MDX Integration
+
+### MDX Best Practices
+- Use MDX for content-heavy pages and documentation
+- Install and configure @next/mdx properly
+- Create custom MDX components for rich content
+- Use frontmatter for metadata (title, description, date, etc.)
+- Implement syntax highlighting for code blocks (use rehype-highlight or similar)
+
+### MDX Component Mapping
+```typescript
+// mdx-components.tsx
+import type { MDXComponents } from 'mdx/types'
+import { CodeBlock } from '@/components/code-block'
+
+export function useMDXComponents(components: MDXComponents): MDXComponents {
+  return {
+    h1: ({ children }) => (
+      <h1 className="text-4xl font-bold mb-4">{children}</h1>
+    ),
+    h2: ({ children }) => (
+      <h2 className="text-3xl font-semibold mb-3">{children}</h2>
+    ),
+    code: ({ children }) => (
+      <CodeBlock>{children}</CodeBlock>
+    ),
+    // Add more custom components
+    ...components,
+  }
+}
+```
+
+### Content Organization
+- Store MDX files in a dedicated content directory (e.g., /content)
+- Use consistent frontmatter schema across MDX files
+- Implement content collections for organized content management
+- Use gray-matter or similar for parsing frontmatter
+
+## Performance Optimization
+
+### Core Performance Strategies
+- Minimize 'use client', 'useEffect', and 'setState'
+- Use dynamic imports for code splitting non-critical components
+- Implement route-based code splitting (automatic with App Router)
+- Use React.lazy() and Suspense for client component lazy loading
+- Optimize bundle size by analyzing with @next/bundle-analyzer
+
+### Image Optimization
+- Always use Next.js Image component for images
+- Use WebP or AVIF format for images
+- Include width and height to prevent layout shift
+- Implement lazy loading with loading="lazy"
+- Use placeholder="blur" with blurDataURL for better UX
+- Optimize images at build time with sharp
+
+### Web Vitals Optimization
+- Optimize Largest Contentful Paint (LCP):
+  - Prioritize above-the-fold content
+  - Use Server Components for initial render
+  - Optimize images and fonts
+- Minimize Cumulative Layout Shift (CLS):
+  - Always set image dimensions
+  - Reserve space for dynamic content
+  - Use CSS aspect-ratio when needed
+- Improve First Input Delay (FID) / Interaction to Next Paint (INP):
+  - Minimize JavaScript bundle size
+  - Use proper code splitting
+  - Defer non-critical JavaScript
+
+### Font Optimization
+- Use next/font for automatic font optimization
+- Prefer next/font/google for Google Fonts
+- Use font-display: swap for better performance
+- Preload critical fonts
+- Ensure fonts requested to be used if specified are used
+
+## Error Handling and Validation
+
+### Error Handling
+- Use error boundaries with error.tsx files
+- Implement proper try-catch blocks for async operations
+- Use early returns for error conditions
+- Implement guard clauses to handle preconditions
+- Create custom error types for consistent error handling
+- Log errors appropriately (client vs server)
+- Show user-friendly error messages
+
+### Validation
+- Use Zod for schema validation and type inference
+- Validate user input on both client and server
+- Implement proper form validation with react-hook-form + Zod
+- Use Zod for API route validation
+- Create reusable validation schemas
+
+```typescript
+import { z } from 'zod'
+
+const userSchema = z.object({
+  name: z.string().min(2).max(50),
+  email: z.string().email(),
+  age: z.number().min(18).optional(),
+})
+
+type User = z.infer<typeof userSchema>
+```
+
+## Forms and User Input
+
+### Form Handling
+- Use react-hook-form for complex forms
+- Integrate Zod for validation
+- Implement proper error messages for each field
+- Show loading states during submission
+- Handle success and error states after submission
+- Use Server Actions for form submissions when possible
+
+### Server Actions
+- Use Server Actions for mutations and form handling
+- Mark server functions with 'use server'
+- Implement proper error handling in Server Actions
+- Use revalidatePath() or revalidateTag() after mutations
+- Return proper success/error states from Server Actions
+
+## Security Best Practices
+
+### General Security
+- Sanitize user input to prevent XSS attacks
+- Use environment variables for sensitive data
+- Never expose API keys or secrets to the client
+- Implement proper authentication and authorization
+- Use HTTPS in production
+- Implement CSRF protection for forms
+- Set proper security headers (use next.config.js)
+
+### API Routes Security
+- Validate all inputs in API routes
+- Use proper HTTP methods (GET, POST, PUT, DELETE)
+- Implement rate limiting for API routes
+- Use authentication middleware for protected routes
+- Return appropriate status codes
+
+## Testing
+
+### Testing Strategy
+- Write unit tests for utility functions and hooks using Jest
+- Use React Testing Library for component tests
+- Implement integration tests for critical user flows
+- Use Playwright or Cypress for E2E tests
+- Test accessibility with @testing-library/jest-dom
+- Mock external API calls in tests
+
+### Testing Best Practices
+- Follow Arrange-Act-Assert pattern
+- Test user behavior, not implementation details
+- Use data-testid sparingly; prefer accessible queries
+- Test error states and edge cases
+- Maintain good test coverage for critical paths
+
+## Documentation
+
+### Code Documentation
+- Use JSDoc comments for functions and components
+- Document complex logic and non-obvious code
+- Include usage examples in component documentation
+- Keep README files up to date
+- Document environment variables and setup steps
+
+### Component Documentation
+```typescript
+/**
+ * Button component with various styles and sizes
+ * 
+ * @param variant - The visual style variant ('primary' | 'secondary' | 'outline')
+ * @param size - The size of the button ('sm' | 'md' | 'lg')
+ * @param children - The button content
+ * @param onClick - Click handler function
+ * 
+ * @example
+ * <Button variant="primary" size="md" onClick={handleClick}>
+ *   Click me
+ * </Button>
+ */
+```
+
+## Accessibility
+
+### A11y Best Practices
+- Use semantic HTML elements (header, nav, main, footer, article, etc.)
+- Implement proper ARIA attributes when needed
+- Ensure keyboard navigation works for all interactive elements
+- Maintain proper heading hierarchy (h1 → h2 → h3)
+- Provide alt text for all images
+- Ensure sufficient color contrast (WCAG AA minimum)
+- Test with screen readers
+- Use focus-visible for focus styles
+
+## Build and Deployment
+
+### Build Optimization
+- Use `next build` to create production builds
+- Analyze bundle size regularly
+- Implement proper caching strategies
+- Use static generation (SSG) when possible
+- Use ISR for pages that need periodic updates
+- Enable compression (gzip/brotli)
+
+### Environment Variables
+- Use .env.local for local development
+- Use .env.production for production
+- Prefix client-side variables with NEXT_PUBLIC_
+- Never commit sensitive environment variables
+- Document all required environment variables
+
+### Deployment
+- Deploy to Vercel for optimal Next.js performance
+- Use proper CI/CD pipelines
+- Implement staging environments
+- Monitor performance in production
+- Set up error tracking (Sentry, etc.)
+- Implement analytics (Vercel Analytics, Google Analytics, etc.)
+
+## Methodology
+
+### Development Approach
+1. **System 2 Thinking**: Break down requirements into smaller, manageable parts
+2. **Planning**: Outline architectural structure and flow before coding
+3. **Implementation**: Build step-by-step, following best practices
+4. **Review**: Look for optimization opportunities and edge cases
+5. **Testing**: Ensure functionality works as expected
+6. **Refinement**: Iterate and improve based on feedback
+
+### Problem-Solving Process
+- Analyze requirements thoroughly
+- Consider multiple solutions and their trade-offs
+- Choose the optimal approach based on constraints
+- Implement with clean, maintainable code
+- Test edge cases and error scenarios
+- Document decisions and complex logic
+
+## Key Conventions
+
+1. Use Server Components by default; use Client Components only when necessary
+2. Implement proper loading and error states for all async operations
+3. Use TypeScript strictly; avoid any and type assertions
+4. Follow file-based routing conventions
+5. Optimize images and fonts using Next.js built-in features
+6. Use Tailwind utility classes; never use @apply
+7. Implement proper SEO with metadata API
+8. Use environment variables for configuration
+9. Write semantic, accessible HTML
+10. Test critical user paths
+11. Use MDX for content-rich pages with custom components
+12. Implement proper error boundaries and fallbacks
+13. Monitor and optimize Web Vitals
+14. Use modern state management (Zustand, TanStack Query)
+15. Validate all user input with Zod
+
+## Common Patterns
+
+### Server Component with Data Fetching
+```typescript
+// app/users/page.tsx
+import { Suspense } from 'react'
+import { UserList } from '@/components/user-list'
+import { UserListSkeleton } from '@/components/user-list-skeleton'
+
+async function getUsers() {
+  const res = await fetch('https://api.example.com/users', {
+    next: { revalidate: 3600 }, // Revalidate every hour
+  })
+  
+  if (!res.ok) throw new Error('Failed to fetch users')
+  return res.json()
+}
+
+export default async function UsersPage() {
+  const users = await getUsers()
+  
+  return (
+    <main className="container mx-auto px-4 py-8">
+      <h1 className="text-4xl font-bold mb-8">Users</h1>
+      <Suspense fallback={<UserListSkeleton />}>
+        <UserList users={users} />
+      </Suspense>
+    </main>
+  )
+}
+```
+
+### Client Component with State
+```typescript
+'use client'
+
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+
+interface CounterProps {
+  initialCount?: number
+}
+
+export function Counter({ initialCount = 0 }: CounterProps) {
+  const [count, setCount] = useState(initialCount)
+  
+  return (
+    <div className="flex items-center gap-4">
+      <Button
+        onClick={() => setCount(count - 1)}
+        variant="outline"
+        size="sm"
+      >
+        Decrement
+      </Button>
+      <span className="text-2xl font-semibold">{count}</span>
+      <Button
+        onClick={() => setCount(count + 1)}
+        variant="default"
+        size="sm"
+      >
+        Increment
+      </Button>
+    </div>
+  )
+}
+```
+
+### Form with Server Action
+```typescript
+// app/actions.ts
+'use server'
+
+import { z } from 'zod'
+import { revalidatePath } from 'next/cache'
+
+const formSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+})
+
+export async function createUser(formData: FormData) {
+  const validatedFields = formSchema.safeParse({
+    name: formData.get('name'),
+    email: formData.get('email'),
+  })
+
+  if (!validatedFields.success) {
+    return { error: 'Invalid fields' }
+  }
+
+  // Save to database
+  // ...
+
+  revalidatePath('/users')
+  return { success: true }
+}
+
+// app/users/new/page.tsx
+import { createUser } from '@/app/actions'
+import { Button } from '@/components/ui/button'
+
+export default function NewUserPage() {
+  return (
+    <form action={createUser} className="space-y-4">
+      <input
+        type="text"
+        name="name"
+        placeholder="Name"
+        className="border px-4 py-2 rounded"
+      />
+      <input
+        type="email"
+        name="email"
+        placeholder="Email"
+        className="border px-4 py-2 rounded"
+      />
+      <Button type="submit">Create User</Button>
+    </form>
+  )
+}
+```
+
+## Critical Reminders
+
+- **Favor Server Components**: Use them by default, only use 'use client' when absolutely necessary
+- **No @apply**: Always use Tailwind utility classes directly in JSX
+- **Type Everything**: Use TypeScript strictly, avoid any type
+- **Validate Input**: Use Zod for all user input and API validation
+- **Optimize Images**: Always use Next.js Image component with proper dimensions
+- **Handle Errors**: Implement proper error boundaries and user-friendly error messages
+- **Test Critical Paths**: Write tests for important user flows
+- **Accessible by Default**: Use semantic HTML and proper ARIA attributes
+- **Mobile First**: Design for mobile, enhance for desktop
+- **Monitor Performance**: Track and optimize Web Vitals regularly
+- **User Requests Take Priority For Styling**: Always follow user's request when styling is brought up or specific changes to UI are mentioned
+
+Refer to Next.js 14 documentation, React docs, and Tailwind CSS documentation for detailed API references and best practices.
